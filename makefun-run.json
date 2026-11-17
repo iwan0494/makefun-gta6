@@ -1,0 +1,25 @@
+{
+  "format": "makefun-run/1",
+  "prompt": {
+    "text": "https://make.fun/bounty/gta6-01\n",
+    "origin": "handed-off",
+    "via": "WhatsApp message from Iwan (bounty link) relayed to the main chat"
+  },
+  "system_prompt": {
+    "status": "withheld",
+    "why": "the harness's own system prompt, carried in-session by the recorded Codex rollout"
+  },
+  "instructions": {
+    "status": "none",
+    "why": null
+  },
+  "mcp_servers": [],
+  "declared": {
+    "harness": "codex",
+    "harness_version": "0.164.0-alpha.9",
+    "provider": "deepseek",
+    "model": "deepseek-v4.1-flash-auto",
+    "reasoning_effort": "default",
+    "notes": "Model served via ClarioHub (OpenAI-compatible proxy); sessions ran clario/deepseek-v4.1-flash-auto."
+  }
+}
