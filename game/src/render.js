@@ -36,6 +36,23 @@ export function createRenderer(canvas) {
     paintGround(g, city);
   }
 
+  // A camera looks down on the city; the wash behind it never covers anything outside the map,
+  // so the camera stops at the edge of the world instead of showing void past it. The margin
+  // matches the one paintGround keeps when it cuts the ground layer, so the frame is all city.
+  function cameraMargin(viewW, viewH, zoom) {
+    return {
+      halfW: viewW / (2 * zoom) + 30,
+      halfH: viewH / (2 * zoom) + 30,
+    };
+  }
+
+  function clampCamera(camera, viewW = viewWidth, viewH = viewHeight) {
+    const zoom = camera.zoom || 1;
+    const { halfW, halfH } = cameraMargin(viewW, viewH, zoom);
+    camera.x = Math.max(Math.min(WORLD / 2, halfW), Math.min(Math.max(WORLD / 2, WORLD - halfW), camera.x));
+    camera.y = Math.max(Math.min(WORLD / 2, halfH), Math.min(Math.max(WORLD / 2, WORLD - halfH), camera.y));
+  }
+
   function cameraTransform(state) {
     const zoom = state.camera.zoom;
     const scale = dpr * zoom;
@@ -88,7 +105,7 @@ export function createRenderer(canvas) {
     drawLighting(ctx, state, left, top, right, bottom, time);
   }
 
-  return { ctx, resize, setCity, draw, screenToWorld, get view() { return { width: viewWidth, height: viewHeight, dpr }; } };
+  return { ctx, resize, setCity, draw, screenToWorld, clampCamera, get view() { return { width: viewWidth, height: viewHeight, dpr }; } };
 }
 
 function paintGround(g, city) {

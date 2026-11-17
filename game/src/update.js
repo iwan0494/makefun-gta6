@@ -93,7 +93,7 @@ export function stepWorld(game, dt, controls) {
     state.player.hp = Math.min(100, state.player.hp + dt * 5);
   }
   if (state.player.cash < 0) state.player.cash = 0;
-  updateCamera(state, dt, controls);
+  updateCamera(state, dt, controls, game.clampCamera);
   return state.events;
 }
 
@@ -364,7 +364,7 @@ function emitEffects(state, dt) {
   state.effects = state.effects.filter((effect) => effect.life > 0);
 }
 
-function updateCamera(state, dt, controls) {
+function updateCamera(state, dt, controls, clampCamera) {
   const inCar = Boolean(state.vehicle);
   const target = state.vehicle ?? state.player;
   const aimAngle = Math.atan2(controls.aimY - state.player.y, controls.aimX - state.player.x);
@@ -375,6 +375,7 @@ function updateCamera(state, dt, controls) {
   const follow = Math.min(1, dt * 5.2);
   state.camera.x += (wantX - state.camera.x) * follow;
   state.camera.y += (wantY - state.camera.y) * follow;
+  if (clampCamera) clampCamera(state.camera);
   state.camera.shake = Math.max(0, state.camera.shake - dt * 2.2);
 }
 

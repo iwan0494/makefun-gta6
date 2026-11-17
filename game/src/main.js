@@ -407,7 +407,10 @@ function setupShot(name) {
   }
   state.camera.x = state.player.x;
   state.camera.y = state.player.y;
+  renderer.clampCamera(state.camera);
 }
+
+game.clampCamera = (camera) => renderer.clampCamera(camera);
 
 setupShot(shot);
 if (shot === 'city' || shot === 'chase') {
