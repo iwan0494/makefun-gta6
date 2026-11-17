@@ -1,8 +1,8 @@
 # Tallow Point
 
-[![make.fun entry](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
-[![make.fun rank](https://make.fun/badge/gta6-01/iwan0494/makefun-gta6/rank.svg)](https://make.fun/bounty/gta6-01)
-[![make.fun reward](https://make.fun/badge/gta6-01/iwan0494/makefun-gta6/reward.svg)](https://make.fun/bounty/gta6-01)
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/iwan0494/tallow-point/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/iwan0494/tallow-point/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 Tallow Point is an original top-down open-world crime game for the browser, built for the
 [make.fun GTA6 bounty](https://make.fun/bounty/gta6-01). You drive and walk around a night-time bay
