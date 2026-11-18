@@ -89,8 +89,10 @@ export function buildCity(seed = 'tallow-point') {
         buildings.push(makeBuilding(random, left + 14, top + size - 30, size - 40, 26, district, true));
         // A pocket park keeps the block's middle open; the renderer draws its lawn and fountain.
       }
-      parking.push({ x: left + size * 0.62, y: top + size - 3, angle: Math.PI / 2, spot: 1 });
-      parking.push({ x: left + size * 0.3, y: top + size - 3, angle: Math.PI / 2, spot: 2 });
+      // Parking spots sit on the road strip, clear of the building front row: one along the
+      // vertical road on the block's left edge and one along the horizontal road on its top.
+      parking.push({ x: left - ROAD * 0.42, y: top + size * 0.35, angle: Math.PI / 2, spot: 1 });
+      parking.push({ x: left + size * 0.6, y: top - ROAD * 0.42, angle: 0, spot: 2 });
     }
   }
 
