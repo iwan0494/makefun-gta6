@@ -447,7 +447,7 @@ function setupShot(name) {
 game.clampCamera = (camera) => renderer.clampCamera(camera);
 
 setupShot(shot);
-if (shot === 'city' || shot === 'chase') {
+if (shot === 'city' || shot === 'chase' || shot === 'police') {
   const idle = { forward: false, back: false, left: false, right: false, fire: false, interact: false, aimX: 0, aimY: 0 };
   for (let index = 0; index < 90; index += 1) {
     idle.aimX = state.player.x + 120;
