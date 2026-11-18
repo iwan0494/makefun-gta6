@@ -57,6 +57,9 @@ window.addEventListener('resize', layout);
 layout();
 renderer.setCity(game.city);
 
+// Debug hook for browser automation debugging
+if (typeof window !== 'undefined') window.__TALLOW_DEBUG = { state, game, renderer, hud };
+
 const controls = {
   forward: false, back: false, left: false, right: false, boost: false,
   fire: false, interact: false, switchWeapon: false, aimX: 0, aimY: 0,

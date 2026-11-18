@@ -77,7 +77,7 @@ export function createHud() {
   function drawTopLeft(state) {
     plate(14, 14, 296, 86);
     const stars = state.police.wanted.stars;
-    for (let index = 0; index < 5; index += 1) star(36 + index * 26, 34, 10.5, index < stars);
+    for (let index = 0; index < 5; index += 1) star(36 + index * 26, 34, 13, index < stars);
     if (stars > 0) {
       const heat = Math.min(1, (state.police.wanted.heat % WANTED_THRESHOLDS[Math.min(5, stars + 1)] || 1) / WANTED_THRESHOLDS[Math.min(5, stars + 1)]);
       ctx.fillStyle = 'rgba(255,255,255,0.1)';
@@ -138,9 +138,9 @@ export function createHud() {
     ctx.font = font(10, 800);
     ctx.fillStyle = PALETTE.gold;
     ctx.fillText(state.mission ? `JOB ${state.mission.number} · ${state.mission.title.toUpperCase()}` : 'FREELANCE', 30, height - 106);
-    ctx.font = font(13, 600);
-    ctx.fillStyle = 'rgba(240,240,235,0.9)';
-    wrap(line, 30, height - 84, Math.min(width * 0.52, 560) - 30, 17);
+    ctx.font = font(14, 600);
+    ctx.fillStyle = PALETTE.white;
+    wrap(line, 30, height - 84, Math.min(width * 0.52, 560) - 30, 18);
     if (state.carryingLedger || state.carryingCrate || state.passenger) {
       ctx.fillStyle = PALETTE.neon;
       ctx.font = font(9, 800);
@@ -281,10 +281,10 @@ export function createHud() {
     ctx.translate(px, py);
     ctx.rotate(heading);
     ctx.beginPath();
-    ctx.moveTo(10, 0);
-    ctx.lineTo(-6, -6);
-    ctx.lineTo(-3, 0);
-    ctx.lineTo(-6, 6);
+    ctx.moveTo(12, 0);
+    ctx.lineTo(-8, -8);
+    ctx.lineTo(-4, 0);
+    ctx.lineTo(-8, 8);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
