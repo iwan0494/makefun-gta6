@@ -9,7 +9,7 @@ import { makeRandom } from './random.js';
 import {
   clampToWorld, collideCars, createPedestrian, knockDown, stepPedestrian, stepPlayerCar, stepTraffic,
 } from './entities.js';
-import { addHeat, clearWanted, CRIMES, stepPolice } from './police.js';
+import { addHeat, clearWanted, CRIMES, stepPolice, nearestOfficerDistance } from './police.js';
 import { MISSIONS } from './story.js';
 import { MODE, WEAPONS, currentWeapon, pushMessage } from './game.js';
 
@@ -112,6 +112,22 @@ export function stepWorld(game, dt, controls) {
   stepPolice(state.police, dt, player, true, (damage, bullet) => onPoliceHit(game, damage, bullet), () => {
     if (state.vehicle && Math.random() < 0.04) state.events.push({ type: 'nearMiss', x: player.x, y: player.y });
   });
+  // Busted: on foot at 3+ stars with an officer in grabbing range.
+  if (!state.vehicle && state.police.wanted.stars >= 3) {
+    const dist = nearestOfficerDistance(state.police, player.x, player.y);
+    if (dist < 14) {
+      state.police.wanted.busted = (state.police.wanted.busted || 0) + dt;
+      if (state.police.wanted.busted > 1.5) {
+        state.mode = MODE.BUSTED;
+        state.events.push({ type: 'busted' });
+        state.police.wanted.busted = 0;
+      }
+    } else {
+      state.police.wanted.busted = Math.max(0, (state.police.wanted.busted || 0) - dt * 0.5);
+    }
+  } else {
+    state.police.wanted.busted = 0;
+  }
   if (state.player.hp <= 0) {
     state.player.hp = 0;
     if (state.mission) failMission(game, 'You went down on the job.');
@@ -193,6 +209,10 @@ function stepDrive(game, dt, controls) {
   state.player.y = car.y;
   state.player.heading = car.heading;
   state.speed = speed;
+  if (speed > 130) {
+    const d = nearestOfficerDistance(state.police, car.x, car.y);
+    if (d < 240) addHeat(state.police.wanted, 1.5 * dt);
+  }
 }
 
 function nearestVehicle(state, x, y) {
@@ -424,6 +444,8 @@ export function startMission(state, index) {
   state.carryingLedger = false;
   state.carryingCrate = false;
   state.passenger = false;
+  state.packagesCollected = 0;
+  state.deliveredPickups = [];
   if (mission.kind === 'raid') {
     state.guardsLeft = mission.spawn.count;
     state.police.officers.length = 0;
@@ -457,6 +479,8 @@ export function completeMission(state) {
   state.carryingLedger = false;
   state.carryingCrate = false;
   state.passenger = false;
+  state.packagesCollected = 0;
+  state.deliveredPickups = [];
   pushMessage(state, `Job done: ${mission.title}  +$${mission.money}`, 'money', 5);
   state.events.push({ type: 'missionDone', title: mission.title });
 }
@@ -471,6 +495,8 @@ export function failMission(state, reason) {
   state.carryingLedger = false;
   state.carryingCrate = false;
   state.passenger = false;
+  state.packagesCollected = 0;
+  state.deliveredPickups = [];
   state.guardsLeft = 0;
   state.events.push({ type: 'missionFail', title: mission.title, reason });
 }
@@ -561,6 +587,26 @@ function stepJob(game, dt) {
       }
       break;
     }
+    case 'delivery': {
+      const pickups = mission.pickups || [];
+      for (let i = 0; i < pickups.length; i += 1) {
+        const goalPt = missionPoint(pickups[i]);
+        if ((state.deliveredPickups || []).includes(i)) continue;
+        if (distance(here.x, here.y, goalPt.x, goalPt.y) < 34) {
+          if (!state.deliveredPickups) state.deliveredPickups = [];
+          state.deliveredPickups.push(i);
+          state.packagesCollected += 1;
+          state.events.push({ type: 'pickup', label: `Parcel ${i + 1}` });
+          pushMessage(state, `Parcel ${i + 1} collected.`, 'money', 2);
+          if (state.packagesCollected >= pickups.length) pushMessage(state, 'All parcels secured. Deliver them to the safehouse in Crater Row.', 'info', 5);
+        }
+      }
+      if (state.packagesCollected >= pickups.length) {
+        const home = missionPoint(mission.goal);
+        if (distance(here.x, here.y, home.x, home.y) < 36) completeMission(state);
+      }
+      break;
+    }
     default:
       break;
   }
@@ -581,6 +627,16 @@ export function markerPoints(state) {
     } else if (mission.kind === 'heist' && state.carryingCrate) {
       const home = missionPoint(MISSIONS[4].start);
       markers.push({ x: home.x, y: home.y, kind: 'goal', label: 'Kitchen' });
+    } else if (mission.kind === 'delivery') {
+      const pickups = mission.pickups || [];
+      const next = pickups.findIndex((_p, i) => !(state.deliveredPickups || []).includes(i));
+      if (next >= 0) {
+        const pt = missionPoint(pickups[next]);
+        markers.push({ x: pt.x, y: pt.y, kind: 'job', label: `Parcel ${next + 1}` });
+      } else {
+        const goal = missionPoint(mission.goal);
+        markers.push({ x: goal.x, y: goal.y, kind: 'goal', label: mission.title });
+      }
     } else {
       const goal = missionPoint(mission.goal);
       markers.push({ x: goal.x, y: goal.y, kind: 'goal', label: mission.title });

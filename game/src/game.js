@@ -57,6 +57,7 @@ export function createGame(options = {}) {
     carryingLedger: false,
     carryingCrate: false,
     passenger: false,
+    packagesCollected: 0,
     tailTarget: null,
     tailLost: false,
     tailTimer: 0,

@@ -88,6 +88,18 @@ export const MISSIONS = [
     money: 2500,
     brief: "Lift Ostrander Bank's cash crate in Northline and bring it back to the Sunset kitchen in Sunmere.",
   },
+  {
+    id: 'courier',
+    number: '06',
+    title: 'Final Run',
+    giver: 'builder',
+    kind: 'delivery',
+    pickups: [{ x: 1.2, y: 0.6 }, { x: 5.6, y: 2.4 }, { x: 4.1, y: 5.6 }],
+    start: { x: 3.6, y: 4.3 },
+    goal: { x: 0.5, y: 1.5 },
+    money: 3500,
+    brief: 'Collect three parcels across the bay and run them to the safehouse in Crater Row before dawn.',
+  },
 ];
 
 export const START_CELL = { x: 1.7, y: 3.45 };
@@ -121,6 +133,10 @@ export function objectiveText(mission, state) {
     case 'heist':
       if (!state.carryingCrate) return 'Reach Ostrander Bank in Northline and lift the cash crate.';
       return 'Drive the crate back to the Sunset kitchen in Sunmere.';
+    case 'delivery':
+      if (state.packagesCollected === undefined) state.packagesCollected = 0;
+      if (state.packagesCollected < mission.pickups.length) return `Parcel ${state.packagesCollected + 1} of ${mission.pickups.length} — reach the gold marker to collect.`;
+      return 'All parcels secured. Deliver them to the safehouse in Crater Row.';
     default:
       return mission.brief;
   }

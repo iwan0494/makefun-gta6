@@ -101,8 +101,8 @@ function applySave(save) {
   state.completed = save.completed ?? [];
   clearWanted(state.police.wanted);
   if (save.wanted && save.wanted.heat > 0) addHeat(state.police.wanted, save.wanted.heat);
-  if (save.mission) startMission(state, Math.min(4, save.mission.index ?? 0));
-  else state.missionIndex = Math.min(4, save.completed.length);
+  if (save.mission) startMission(state, Math.min(5, save.mission.index ?? 0));
+  else state.missionIndex = Math.min(5, save.completed.length);
   state.camera.x = state.player.x;
   state.camera.y = state.player.y;
   return true;
@@ -425,6 +425,19 @@ function setupShot(name) {
     state.mode = MODE.PLAY;
     menuOpen = false;
     pushMessage(state, 'Parked van — E to break in.', 'info', 6);
+  } else if (name === 'police') {
+    // 3-star wanted chase with a roadblock
+    clearWanted(state.police.wanted);
+    state.clock = 20 * 60 + 15; // daytime
+    state.player.x = CELL * 3.35;
+    state.player.y = CELL * 3.35;
+    const coupe = state.parked.find((c) => c.type === 'coupe') ?? state.parked[0];
+    if (coupe) {
+      enterVehicle(state, coupe);
+      coupe.heading = -0.55;
+    }
+    addHeat(state.police.wanted, 200); // 3+ stars
+    pushMessage(state, 'Three stars — roadblock ahead. Lose them or run them down.', 'bad', 7);
   }
   state.camera.x = state.player.x;
   state.camera.y = state.player.y;

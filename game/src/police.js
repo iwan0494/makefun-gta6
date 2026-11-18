@@ -215,6 +215,30 @@ export function stepPolice(police, dt, player, active, onHit, onGrounded) {
     const y = Math.max(CELL / 2, Math.min(city.bounds.maxY, py + Math.sin(angle) * distance));
     if (spawnFootOfficer(police, x, y)) officersAlive += 1;
   }
+  // Roadblocks at 3+ stars: a cruiser parked across the road ahead of the player.
+  if (stars >= 3) {
+    const hasRoadblock = police.cruisers.some((c) => c && c.roadblock);
+    if (!hasRoadblock) {
+      const rx = px + Math.cos(player.heading || 0) * 220;
+      const ry = py + Math.sin(player.heading || 0) * 220;
+      const spot = city.nearestNode(rx, ry);
+      const slot = police.cruisers.indexOf(null);
+      if (slot !== -1) {
+        const cruiser = createCruiser(police, spot.x, spot.y);
+        cruiser.id = police.nextIds.cruiser++;
+        cruiser.route = [];
+        cruiser.replan = 99;
+        cruiser.roadblock = true;
+        cruiser.speed = 0;
+        police.cruisers[slot] = cruiser;
+      }
+    }
+  } else {
+    for (let i = 0; i < police.cruisers.length; i += 1) {
+      if (police.cruisers[i] && police.cruisers[i].roadblock) police.cruisers[i] = null;
+    }
+  }
+
   if (police.wanted.stars === 0) {
     for (let index = 0; index < police.cruisers.length; index += 1) {
       const cruiser = police.cruisers[index];
