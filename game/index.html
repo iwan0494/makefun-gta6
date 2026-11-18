@@ -29,7 +29,14 @@
 </head>
 <body>
 <div id="boot">Tallow Point</div>
-<canvas id="game" aria-label="Tallow Point: the city and its traffic, seen from above" role="img"></canvas>
+<canvas id="game" aria-label="Tallow Point: the 3D city, its traffic and the chase camera" role="img"></canvas>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.min.js"
+  }
+}
+</script>
 <script type="module" src="./src/main.js"></script>
 <script>
   window.addEventListener('load', () => {
