@@ -221,31 +221,35 @@ export function createRenderer(canvas) {
 
   function placeCar(mesh, car, color, isPolice) {
     const spec = car.spec ?? { length: 26, width: 12.4 };
-    const sx = spec.length / 26;
-    const sz = spec.width / 12.4;
+    // Cars are laid out in world units (a coupe is 24 long, 12 wide) so they read as vehicles
+    // beside the 150-unit blocks; before this they rendered at a fraction of a unit and vanished.
+    const length = spec.length;
+    const width = spec.width;
     mesh.visible = true;
     mesh.position.set(car.x, 1.4, car.y);
     mesh.rotation.y = -(car.heading || 0);
-    mesh.scale.set(sx, 1, sz);
+    mesh.scale.set(1, 1, 1);
     // color body (first child)
     const body = mesh.children[0];
     const cabin = mesh.children[1];
-    body.scale.set(1, 0.5, 0.55);
-    body.position.y = 0.35;
-    cabin.scale.set(0.55, 0.35, 0.5);
-    cabin.position.y = 0.7;
+    body.scale.set(length, 1.5, width);
+    body.position.y = 0.75;
+    cabin.scale.set(length * 0.46, 1.2, width * 0.72);
+    cabin.position.y = 2.1;
     body.material.color.set(color ?? '#cccccc');
     // Type-specific shape cues (coupe lower/sportier, van taller/boxier, taxi light)
     switch (car.type) {
       case 'van':
-        cabin.scale.set(0.68, 0.62, 0.6);
-        cabin.position.y = 0.88;
-        body.scale.y = 0.68;
+        body.scale.set(length, 2.1, width);
+        body.position.y = 1.05;
+        cabin.scale.set(length * 0.5, 1.7, width * 0.86);
+        cabin.position.y = 2.95;
         break;
       case 'coupe':
-        cabin.scale.set(0.42, 0.26, 0.44);
-        cabin.position.y = 0.64;
-        body.scale.y = 0.34;
+        body.scale.set(length, 1.1, width);
+        body.position.y = 0.55;
+        cabin.scale.set(length * 0.42, 1.0, width * 0.62);
+        cabin.position.y = 1.65;
         break;
       case 'taxi':
         break;
@@ -257,8 +261,8 @@ export function createRenderer(canvas) {
     while (lightChild) { mesh.remove(lightChild); lightChild = mesh.children.find((c) => c.userData && c.userData.taxiLight); }
     if (car.type === 'taxi') {
       const taxiLight = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: new THREE.Color(0xffcc00), emissiveIntensity: 2 }));
-      taxiLight.scale.set(0.18, 0.1, 0.32);
-      taxiLight.position.set(0, 0.92, 0);
+      taxiLight.scale.set(3.2, 0.7, 2.6);
+      taxiLight.position.set(0, 2.95, 0);
       taxiLight.userData = { taxiLight: true };
       mesh.add(taxiLight);
     }
@@ -267,8 +271,8 @@ export function createRenderer(canvas) {
       let lightChild2 = mesh.children.find((c) => c.userData && c.userData.policeLight);
       while (lightChild2) { mesh.remove(lightChild2); lightChild2 = mesh.children.find((c) => c.userData && c.userData.policeLight); }
       const bar = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: new THREE.Color(0xff3333), emissiveIntensity: 2 }));
-      bar.scale.set(0.4, 0.15, 0.15);
-      bar.position.set(0, 0.6, 0);
+      bar.scale.set(length * 0.5, 0.9, width * 0.28);
+      bar.position.set(0, 2.95, 0);
       bar.userData = { policeLight: true };
       mesh.add(bar);
     }
@@ -330,29 +334,47 @@ export function createRenderer(canvas) {
 
   let lastTime = -1;
   let lastFocus = { x: WORLD / 2, y: WORLD / 2 };
-  function updateChaseCamera(state, time) {
-    const dt = lastTime < 0 ? 0.016 : Math.min(0.05, Math.max(0.001, time - lastTime));
-    lastTime = time;
+  // Where the chase camera belongs for the current focus. Shared by the eased follow camera and
+  // the screenshot snap so a capture never depends on how many frames the ease has had.
+  function chasePose(state) {
     const focus = state.vehicle ?? state.player;
-    lastFocus = focus;
     const heading = state.vehicle ? state.vehicle.heading : (state.player.heading ?? 0);
     const dist = state.vehicle ? 235 : 168;
     const height = state.vehicle ? 145 : 122;
     const lookAhead = state.vehicle ? 55 : 26;
-    let camX = focus.x - Math.cos(heading) * dist;
-    let camZ = focus.y - Math.sin(heading) * dist;
-    camX = Math.max(75, Math.min(WORLD - 75, camX));
-    camZ = Math.max(75, Math.min(WORLD - 75, camZ));
+    const camX = Math.max(75, Math.min(WORLD - 75, focus.x - Math.cos(heading) * dist));
+    const camZ = Math.max(75, Math.min(WORLD - 75, focus.y - Math.sin(heading) * dist));
+    return {
+      focus,
+      camX,
+      camZ,
+      height,
+      lookAhead,
+      targetX: focus.x + Math.cos(heading) * lookAhead,
+      targetZ: focus.y + Math.sin(heading) * lookAhead,
+    };
+  }
+
+  function snapChaseCamera(state) {
+    const pose = chasePose(state);
+    lastFocus = pose.focus;
+    camera.position.set(pose.camX, pose.height, pose.camZ);
+    camera.lookAt(pose.targetX, 9, pose.targetZ);
+  }
+
+  function updateChaseCamera(state, time) {
+    const dt = lastTime < 0 ? 0.016 : Math.min(0.05, Math.max(0.001, time - lastTime));
+    lastTime = time;
+    const pose = chasePose(state);
+    lastFocus = pose.focus;
     const ease = Math.min(1, dt * 6);
-    camera.position.x += (camX - camera.position.x) * ease;
-    camera.position.y += (height - camera.position.y) * ease;
-    camera.position.z += (camZ - camera.position.z) * ease;
+    camera.position.x += (pose.camX - camera.position.x) * ease;
+    camera.position.y += (pose.height - camera.position.y) * ease;
+    camera.position.z += (pose.camZ - camera.position.z) * ease;
     const shake = Math.max(0, Math.min(1, state.camera.shake || 0));
     camera.position.x += (Math.random() - 0.5) * shake * 6;
     camera.position.y += (Math.random() - 0.5) * shake * 2;
-    const targetX = focus.x + Math.cos(heading) * lookAhead;
-    const targetZ = focus.y + Math.sin(heading) * lookAhead;
-    camera.lookAt(targetX, 9, targetZ);
+    camera.lookAt(pose.targetX, 9, pose.targetZ);
   }
 
   function draw(game, time) {
@@ -377,5 +399,5 @@ export function createRenderer(canvas) {
 
   function screenToWorld() { return { x: lastFocus.x, y: lastFocus.y }; }
 
-  return { ctx, resize, setCity: buildScene, draw, screenToWorld, clampCamera, get view() { return { width: viewWidth, height: viewHeight, dpr }; } };
+  return { ctx, resize, setCity: buildScene, draw, screenToWorld, clampCamera, get view() { return { width: viewWidth, height: viewHeight, dpr }; }, camera };
 }

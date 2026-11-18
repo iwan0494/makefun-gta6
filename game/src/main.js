@@ -13,7 +13,7 @@ import { createAudio } from './audio.js';
 import { districtName, enterVehicle, markerPoints, nearestRide, startMission, stepWorld } from './update.js';
 import { objectiveText, SHOP_CELL, START_CELL } from './story.js';
 import { readSave, readSettings, snapshot, writeSave, writeSettings } from './save.js';
-import { addHeat, clearWanted } from './police.js';
+import { addHeat, clearWanted, spawnCruiser } from './police.js';
 import { CELL } from './config.js';
 
 const canvas = document.getElementById('game');
@@ -441,6 +441,11 @@ function setupShot(name) {
     }
     addHeat(state.police.wanted, 200); // 3+ stars
     pushMessage(state, 'Three stars — roadblock ahead. Lose them or run them down.', 'bad', 7);
+    // Stage a visible police presence for the screenshot: a cruiser parked behind the player
+    // so the capture frame shows the chase.
+    const behind = 180;
+    const ang = Math.PI;
+    spawnCruiser(state.police, state.vehicle.x - Math.cos(ang) * behind, state.vehicle.y + Math.sin(ang) * behind);
   }
   state.camera.x = state.player.x;
   state.camera.y = state.player.y;
@@ -451,13 +456,16 @@ game.clampCamera = (camera) => renderer.clampCamera(camera);
 
 setupShot(shot);
 if (shot === 'city' || shot === 'chase' || shot === 'police') {
+  const idleFrames = shot === 'police' ? 240 : 90;
   const idle = { forward: false, back: false, left: false, right: false, fire: false, interact: false, aimX: 0, aimY: 0 };
-  for (let index = 0; index < 90; index += 1) {
+  for (let index = 0; index < idleFrames; index += 1) {
     idle.aimX = state.player.x + 120;
     idle.aimY = state.player.y + 20;
     stepWorld(game, 1 / 60, idle);
   }
   state.events.length = 0;
+  // Snap the chase camera so the screenshot frame is already in position
+  renderer.snapChaseCamera(state);
 }
 
 let accumulator = 0;
