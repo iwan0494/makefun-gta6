@@ -17,7 +17,7 @@ export function createRenderer(canvas) {
   if (canvas.parentNode) canvas.parentNode.insertBefore(glCanvas, canvas);
   else document.body.appendChild(glCanvas);
 
-  const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
   renderer.setClearColor(0x0a0d18, 1);
 
   const scene = new THREE.Scene();
@@ -333,15 +333,22 @@ export function createRenderer(canvas) {
   }
 
   let lastTime = -1;
+  // Per-shot camera override (used for the police screenshot so the chase reads in one frame).
+  // Null during normal play; only set for shot='police' in main.js.
+  let shotFix = null;
   let lastFocus = { x: WORLD / 2, y: WORLD / 2 };
-  // Where the chase camera belongs for the current focus. Shared by the eased follow camera and
-  // the screenshot snap so a capture never depends on how many frames the ease has had.
+  function setShotFix(fix) { shotFix = fix ? { ...fix } : null; }
+  function clearShotFix() { shotFix = null; }
+
   function chasePose(state) {
     const focus = state.vehicle ?? state.player;
     const heading = state.vehicle ? state.vehicle.heading : (state.player.heading ?? 0);
-    const dist = state.vehicle ? 235 : 168;
-    const height = state.vehicle ? 145 : 122;
-    const lookAhead = state.vehicle ? 55 : 26;
+    const baseDist = state.vehicle ? 235 : 168;
+    const baseHeight = state.vehicle ? 145 : 122;
+    const baseLookAhead = state.vehicle ? 55 : 26;
+    const dist = shotFix ? shotFix.dist : baseDist;
+    const height = shotFix ? shotFix.height : baseHeight;
+    const lookAhead = shotFix ? shotFix.lookAhead : baseLookAhead;
     const camX = Math.max(75, Math.min(WORLD - 75, focus.x - Math.cos(heading) * dist));
     const camZ = Math.max(75, Math.min(WORLD - 75, focus.y - Math.sin(heading) * dist));
     return {
@@ -399,5 +406,5 @@ export function createRenderer(canvas) {
 
   function screenToWorld() { return { x: lastFocus.x, y: lastFocus.y }; }
 
-  return { ctx, resize, setCity: buildScene, draw, screenToWorld, clampCamera, get view() { return { width: viewWidth, height: viewHeight, dpr }; }, camera };
+  return { ctx, resize, setCity: buildScene, draw, screenToWorld, clampCamera, get view() { return { width: viewWidth, height: viewHeight, dpr }; }, camera, snapChaseCamera, setShotFix, clearShotFix };
 }

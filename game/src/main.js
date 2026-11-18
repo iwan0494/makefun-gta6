@@ -441,11 +441,14 @@ function setupShot(name) {
     }
     addHeat(state.police.wanted, 200); // 3+ stars
     pushMessage(state, 'Three stars — roadblock ahead. Lose them or run them down.', 'bad', 7);
-    // Stage a visible police presence for the screenshot: a cruiser parked behind the player
-    // so the capture frame shows the chase.
-    const behind = 180;
-    const ang = Math.PI;
-    spawnCruiser(state.police, state.vehicle.x - Math.cos(ang) * behind, state.vehicle.y + Math.sin(ang) * behind);
+    // Stage a visible police presence for the screenshot: a cruiser parked ahead of the player
+    // along the heading so it sits in the chase frame.
+    const ahead = 100;
+    const ang = state.vehicle ? state.vehicle.heading : -0.55;
+    spawnCruiser(state.police, state.vehicle.x + Math.cos(ang) * ahead, state.vehicle.y + Math.sin(ang) * ahead);
+    // For the police shot only: bring the chase camera closer/lower so the player car + cruiser
+    // read clearly as vehicles, not tiny rectangles.
+    renderer.setShotFix({ dist: 120, height: 60, lookAhead: 24 });
   }
   state.camera.x = state.player.x;
   state.camera.y = state.player.y;
