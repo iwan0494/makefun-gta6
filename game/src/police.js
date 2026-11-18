@@ -8,7 +8,7 @@ import { collideCars, createCruiser, headingBetween, laneCenter, turnToward } fr
 export const CRIMES = {
   assault: 12,
   police: 34,
-  theft: 24,
+  theft: 50,
   gunfire: 10,
   vehicle: 18,
   kill: 40,

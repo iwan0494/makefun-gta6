@@ -73,6 +73,8 @@ export function createGame(options = {}) {
     events: [],
     effects: [],
     markers: [],
+    stealCar: null,
+    stealProgress: 0,
   };
   for (let index = 0; index < PEDESTRIAN_COUNT; index += 1) {
     const node = city.nodes[random.int(0, city.nodes.length - 1)];

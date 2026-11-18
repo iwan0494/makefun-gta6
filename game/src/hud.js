@@ -194,6 +194,26 @@ export function createHud() {
     ctx.textAlign = 'center';
     ctx.fillText(text, width / 2, height - 156);
     ctx.textAlign = 'left';
+    // Steal progress bar
+    if (extra.stealProgress && extra.stealProgress > 0) {
+      const barW = 220;
+      const barH = 12;
+      const x = width / 2 - barW / 2;
+      const y = height - 136;
+      // Background
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.fillRect(x, y, barW, barH);
+      // Progress
+      const progress = Math.min(1, extra.stealProgress);
+      ctx.fillStyle = '#ffc94a';
+      ctx.fillRect(x, y, barW * progress, barH);
+      // Percentage text
+      ctx.font = font(9, 600);
+      ctx.fillStyle = '#15161c';
+      ctx.textAlign = 'center';
+      ctx.fillText(Math.round(progress * 100) + '%', x + barW / 2, y + barH - 4);
+      ctx.textAlign = 'left';
+    }
   }
 
   function drawMinimap(state, extra) {

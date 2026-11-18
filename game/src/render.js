@@ -229,15 +229,48 @@ export function createRenderer(canvas) {
     mesh.scale.set(sx, 1, sz);
     // color body (first child)
     const body = mesh.children[0];
+    const cabin = mesh.children[1];
+    body.scale.set(1, 0.5, 0.55);
+    body.position.y = 0.35;
+    cabin.scale.set(0.55, 0.35, 0.5);
+    cabin.position.y = 0.7;
     body.material.color.set(color ?? '#cccccc');
+    // Type-specific shape cues (coupe lower/sportier, van taller/boxier, taxi light)
+    switch (car.type) {
+      case 'van':
+        cabin.scale.set(0.68, 0.62, 0.6);
+        cabin.position.y = 0.88;
+        body.scale.y = 0.68;
+        break;
+      case 'coupe':
+        cabin.scale.set(0.42, 0.26, 0.44);
+        cabin.position.y = 0.64;
+        body.scale.y = 0.34;
+        break;
+      case 'taxi':
+        break;
+      default:
+        break;
+    }
+    // Remove any prior taxi light then re-add for taxis only
+    let lightChild = mesh.children.find((c) => c.userData && c.userData.taxiLight);
+    while (lightChild) { mesh.remove(lightChild); lightChild = mesh.children.find((c) => c.userData && c.userData.taxiLight); }
+    if (car.type === 'taxi') {
+      const taxiLight = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: new THREE.Color(0xffcc00), emissiveIntensity: 2 }));
+      taxiLight.scale.set(0.18, 0.1, 0.32);
+      taxiLight.position.set(0, 0.92, 0);
+      taxiLight.userData = { taxiLight: true };
+      mesh.add(taxiLight);
+    }
     if (isPolice) {
       // light bar
-      if (mesh.children.length < 3) {
-        const bar = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: new THREE.Color(0xff3333), emissiveIntensity: 2 }));
-        bar.scale.set(0.4, 0.15, 0.15);
-        bar.position.set(0, 0.6, 0);
-        mesh.add(bar);
-      }
+      let lightChild2 = mesh.children.find((c) => c.userData && c.userData.policeLight);
+      while (lightChild2) { mesh.remove(lightChild2); lightChild2 = mesh.children.find((c) => c.userData && c.userData.policeLight); }
+      const bar = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: new THREE.Color(0xff3333), emissiveIntensity: 2 }));
+      bar.scale.set(0.4, 0.15, 0.15);
+      bar.position.set(0, 0.6, 0);
+      bar.userData = { policeLight: true };
+      mesh.add(bar);
     }
   }
 

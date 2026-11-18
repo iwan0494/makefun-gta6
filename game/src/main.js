@@ -283,8 +283,14 @@ function hudExtras() {
   const markers = markerPoints(state);
   state.markers = markers;
   let prompt = '';
-  if (state.mode === MODE.PLAY && !state.vehicle && nearestRide(state)) prompt = 'E  take this car';
-  else if (state.mode === MODE.PLAY && state.vehicle) prompt = 'E  get out';
+  if (state.mode === MODE.PLAY && state.stealCar) {
+    prompt = 'Breaking in\u2026';
+  } else if (state.mode === MODE.PLAY && !state.vehicle) {
+    const ride = nearestRide(state);
+    if (ride) prompt = ride.driver && !ride.stolen ? 'E  Carjack' : 'E  Steal car';
+  } else if (state.mode === MODE.PLAY && state.vehicle) {
+    prompt = 'E  get out';
+  }
   return {
     mode: state.mode,
     markers,
@@ -292,6 +298,7 @@ function hudExtras() {
     blocks: game.city.blocks,
     objective: objectiveText(state.mission, state),
     prompt,
+    stealProgress: state.stealProgress,
   };
 }
 
@@ -404,6 +411,20 @@ function setupShot(name) {
     menuOpen = true;
     menuIndex = 0;
     state.mode = MODE.PLAY;
+  } else if (name === 'steal') {
+    clearWanted(state.police.wanted);
+    state.clock = 21 * 60 + 30;
+    const van = state.parked.find((c) => c.type === 'van') ?? state.parked[0];
+    if (van) {
+      state.player.x = van.x - 16;
+      state.player.y = van.y + 8;
+      state.player.heading = 0;
+      state.stealCar = van;
+      state.stealProgress = 0.55;
+    }
+    state.mode = MODE.PLAY;
+    menuOpen = false;
+    pushMessage(state, 'Parked van — E to break in.', 'info', 6);
   }
   state.camera.x = state.player.x;
   state.camera.y = state.player.y;

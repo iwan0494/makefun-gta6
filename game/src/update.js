@@ -44,12 +44,41 @@ export function stepWorld(game, dt, controls) {
 
   if (controls.interact) {
     if (state.vehicle) exitVehicle(state);
-    else {
+    else if (state.stealCar) {
+      // Cancel steal in progress
+      state.stealCar = null;
+      state.stealProgress = 0;
+    } else {
       const car = nearestVehicle(state, player.x, player.y);
-      if (car) enterVehicle(state, car);
+      if (car) {
+        if (car.driver && !car.stolen) {
+          // Traffic car — instant carjack
+          enterVehicle(state, car);
+        } else {
+          // Parked car — break-in sequence (~1 second)
+          state.stealCar = car;
+          state.stealProgress = 0;
+        }
+      }
     }
   }
   if (controls.groundMove) controls.groundMove = false;
+
+  // Advance break-in progress
+  if (state.stealCar && !state.vehicle) {
+    const d = distance(state.player.x, state.player.y, state.stealCar.x, state.stealCar.y);
+    if (d > 48) {
+      state.stealCar = null;
+      state.stealProgress = 0;
+    } else {
+      state.stealProgress += dt / 1.0;
+      if (state.stealProgress >= 1) {
+        enterVehicle(state, state.stealCar);
+        state.stealCar = null;
+        state.stealProgress = 0;
+      }
+    }
+  }
 
   if (state.vehicle) stepDrive(game, dt, controls);
   else stepOnFoot(game, dt, controls, aimAngle);
