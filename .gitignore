@@ -1,5 +1,5 @@
+# Build output and local clutter — never committed.
 out/
-proto/
 node_modules/
+.DS_Store
 *.log
-.wrangler/

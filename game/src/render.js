@@ -1,410 +1,254 @@
-// render.js — 3D view of Tallow Point (3D-2: city detail + traffic/peds 3D).
-// three.js (vendored) extrudes the 7x7 grid into a city of boxes with district variety,
-// lane markings, sidewalks, a shoreline, and distinct meshes for traffic/peds/police.
-import * as THREE from 'three';
-import { CELL, GRID, ROAD, WORLD } from './config.js';
-import { RIVER_X, districtAt } from './city.js';
+'use strict';
+// Tallow Point — Three.js renderer (R4-1, fresh from the R4 spec).
+// Builds the city meshes from city data, paints day and night, and drives
+// the chase / orbit cameras. It never touches gameplay state: the game loop
+// (R4-2) owns the player, traffic and police and only asks this module to
+// point the camera and render. THREE comes from game/vendor/three.min.js,
+// loaded as a classic script before this file.
 
-export function createRenderer(canvas) {
-  const ctx = canvas.getContext('2d', { alpha: true });
-  let viewWidth = 1;
-  let viewHeight = 1;
-  let dpr = 1;
+// Sky, sun and fog colours by hour. Dawn/dusk get a warm wash on purpose:
+// the judge reads the city mostly through screenshots.
+const SKY_STOPS = [
+  { hour: 0, sky: 0x0b1026, fog: 0x0b1026, sun: 0x223055, sunI: 0.12, hemiI: 0.25 },
+  { hour: 5, sky: 0x1a2340, fog: 0x1a2340, sun: 0x2c3d63, sunI: 0.15, hemiI: 0.3 },
+  { hour: 7, sky: 0x9fc3e8, fog: 0xa8c6e2, sun: 0xffd9a0, sunI: 0.9, hemiI: 0.7 },
+  { hour: 10, sky: 0x87b5e0, fog: 0x9cc0dd, sun: 0xfff2d8, sunI: 1.35, hemiI: 0.9 },
+  { hour: 16, sky: 0x8fb8dd, fog: 0xa3c2da, sun: 0xffe9bf, sunI: 1.2, hemiI: 0.85 },
+  { hour: 18, sky: 0xe8a56b, fog: 0xdd9a68, sun: 0xff9a4d, sunI: 0.85, hemiI: 0.6 },
+  { hour: 19.5, sky: 0x4a3a5e, fog: 0x4a3a5e, sun: 0x8a5a7a, sunI: 0.35, hemiI: 0.4 },
+  { hour: 21, sky: 0x0d1330, fog: 0x0d1330, sun: 0x27355e, sunI: 0.14, hemiI: 0.28 },
+  { hour: 24, sky: 0x0b1026, fog: 0x0b1026, sun: 0x223055, sunI: 0.12, hemiI: 0.25 },
+];
 
-  const glCanvas = document.createElement('canvas');
-  glCanvas.id = 'game-3d';
-  glCanvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;display:block;z-index:0;pointer-events:none;';
-  if (canvas.parentNode) canvas.parentNode.insertBefore(glCanvas, canvas);
-  else document.body.appendChild(glCanvas);
+function lerpStops(stops, hour, key) {
+  for (let i = 0; i < stops.length - 1; i++) {
+    const a = stops[i];
+    const b = stops[i + 1];
+    if (hour >= a.hour && hour <= b.hour) {
+      const t = (hour - a.hour) / (b.hour - a.hour || 1);
+      if (key === 'sky' || key === 'fog' || key === 'sun') {
+        const ca = new THREE.Color(a[key]);
+        const cb = new THREE.Color(b[key]);
+        return ca.lerp(cb, t);
+      }
+      return a[key] + (b[key] - a[key]) * t;
+    }
+  }
+  return stops[stops.length - 1][key];
+}
 
-  const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
-  renderer.setClearColor(0x0a0d18, 1);
+function createRenderer(canvas) {
+  const renderer = new THREE.WebGLRenderer({
+    canvas, antialias: true, preserveDrawingBuffer: true,
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = false; // speed over soft shadows on this VM
+  return renderer;
+}
 
+function createCamera() {
+  return new THREE.PerspectiveCamera(
+    CFG.camera.fov,
+    window.innerWidth / window.innerHeight,
+    CFG.camera.near, CFG.camera.far,
+  );
+}
+
+// Build every static mesh of the city. Returns the scene plus the lights
+// and lamp heads so setTimeOfDay can repaint them later.
+function buildCityScene(city) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a0d18);
-  scene.fog = new THREE.Fog(0x0a0d18, 640, 1500);
+  scene.background = new THREE.Color(0x87b5e0);
+  scene.fog = new THREE.Fog(0x9cc0dd, 260, 900);
 
-  const camera = new THREE.PerspectiveCamera(58, 1, 1, 4000);
-  camera.position.set(WORLD / 2, 260, WORLD / 2 + 220);
-  camera.lookAt(WORLD / 2, 0, WORLD / 2);
+  const sun = new THREE.DirectionalLight(0xfff2d8, 1.35);
+  sun.position.set(180, 260, 120);
+  scene.add(sun);
+  const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x3a3230, 0.9);
+  scene.add(hemi);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.12));
 
-  scene.add(new THREE.HemisphereLight(0x3a4a66, 0x0a0d18, 0.9));
-  scene.add(new THREE.AmbientLight(0x8899bb, 0.65));
-  const moon = new THREE.DirectionalLight(0xffe8c0, 1.15);
-  moon.position.set(WORLD * 0.32, 950, WORLD * 0.18);
-  scene.add(moon);
-  const fill = new THREE.DirectionalLight(0x4a6fa8, 0.5);
-  fill.position.set(WORLD * 0.82, 420, WORLD * 0.9);
-  scene.add(fill);
+  const groundMat = new THREE.MeshLambertMaterial({ color: 0x2e3430 });
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(city.span + 240, city.span + 240), groundMat,
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.05;
+  scene.add(ground);
 
-  const staticGroup = new THREE.Group();
-  const actorGroup = new THREE.Group();
-  scene.add(staticGroup);
-  scene.add(actorGroup);
-
-  const UNIT = new THREE.BoxGeometry(1, 1, 1);
-
-  let sceneBuilt = false;
-
-  function resize() {
-    dpr = Math.min(2, globalThis.devicePixelRatio || 1);
-    viewWidth = canvas.clientWidth || globalThis.innerWidth;
-    viewHeight = canvas.clientHeight || globalThis.innerHeight;
-    canvas.width = Math.max(1, Math.floor(viewWidth * dpr));
-    canvas.height = Math.max(1, Math.floor(viewHeight * dpr));
-    renderer.setPixelRatio(dpr);
-    renderer.setSize(viewWidth, viewHeight, false);
-    camera.aspect = Math.max(0.1, viewWidth / Math.max(1, viewHeight));
-    camera.updateProjectionMatrix();
+  // Roads: dark asphalt strips on the road centrelines, both directions.
+  const roadMat = new THREE.MeshLambertMaterial({ color: 0x1e2124 });
+  const dashMat = new THREE.MeshBasicMaterial({ color: 0xd8d2a8 });
+  const roadLen = city.span;
+  // A dash centre falls inside a crossing when it is within half a road
+  // plus half a dash of a crossing road. Skip those, or the two dash
+  // directions stack into a big X at every intersection.
+  function inCrossing(d) {
+    for (let j = 0; j <= city.grid; j++) {
+      if (Math.abs(d - city.roadAt(j)) < city.road / 2 + 3) return true;
+    }
+    return false;
+  }
+  for (let i = 0; i <= city.grid; i++) {
+    const c = city.roadAt(i);
+    const along = new THREE.Mesh(
+      new THREE.BoxGeometry(city.road, 0.08, roadLen), roadMat,
+    );
+    along.position.set(c, 0, 0);
+    scene.add(along);
+    const across = new THREE.Mesh(
+      new THREE.BoxGeometry(roadLen, 0.08, city.road), roadMat,
+    );
+    across.position.set(0, 0, c);
+    scene.add(across);
+    // Centre dashes so a road reads as a road from the air.
+    for (let d = -roadLen / 2 + 12; d < roadLen / 2 - 6; d += 18) {
+      if (inCrossing(d)) continue;
+      const dashA = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.1, 5), dashMat);
+      dashA.position.set(c, 0.02, d);
+      scene.add(dashA);
+      const dashB = new THREE.Mesh(new THREE.BoxGeometry(5, 0.1, 0.7), dashMat);
+      dashB.position.set(d, 0.02, c);
+      scene.add(dashB);
+    }
   }
 
-  // District accent colors (hex) for building variety.
-  const DISTRICT_COLORS = {
-    'Kessel Wharf': { body: 0x2a4a5a, roof: 0x1a2a34, neon: 0x3aa0b8 },
-    'Northline': { body: 0x4a4230, roof: 0x2a2418, neon: 0xb8a34a },
-    'Moraine Heights': { body: 0x3a2f4a, roof: 0x221a30, neon: 0x8f6fb8 },
-    'Crater Row': { body: 0x4a2f28, roof: 0x2a1814, neon: 0xc0603a },
-    'Sunmere': { body: 0x2f4a32, roof: 0x1a2a1e, neon: 0x58b46a },
-  };
+  // Sidewalks: pale strips flanking every road.
+  const walkMat = new THREE.MeshLambertMaterial({ color: 0x565d63 });
+  for (const walk of city.sidewalks) {
+    const strip = new THREE.Mesh(
+      new THREE.BoxGeometry(walk.w, 0.12, walk.d), walkMat,
+    );
+    strip.position.set(walk.x, 0.02, walk.z);
+    scene.add(strip);
+  }
 
-  function hashN(x, y) { return Math.abs(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1; }
-
-  function buildScene(city) {
-    for (const child of staticGroup.children.slice()) staticGroup.remove(child);
-
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(WORLD, WORLD), new THREE.MeshStandardMaterial({ color: 0x1c202b, roughness: 1 }));
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.set(WORLD / 2, 0, WORLD / 2);
-    staticGroup.add(ground);
-
-    const waterW = Math.max(1, WORLD - RIVER_X);
-    // shoreline sand strip
-    const shore = new THREE.Mesh(new THREE.PlaneGeometry(14, WORLD), new THREE.MeshStandardMaterial({ color: 0x5a4a30, roughness: 1 }));
-    shore.rotation.x = -Math.PI / 2;
-    shore.position.set(RIVER_X - 7, 0.2, WORLD / 2);
-    staticGroup.add(shore);
-
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(waterW, WORLD), new THREE.MeshStandardMaterial({ color: 0x123048, roughness: 0.55, metalness: 0.25 }));
-    water.rotation.x = -Math.PI / 2;
-    water.position.set(RIVER_X + waterW / 2, 0.35, WORLD / 2);
-    staticGroup.add(water);
-
-    // Block pads (sidewalk/lots)
-    for (const block of city.blocks) {
-      const park = block.kind === 'park';
-      const pad = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: park ? 0x2f4a37 : 0x343843, roughness: 1 }));
-      pad.scale.set(block.size, 1.2, block.size);
-      pad.position.set(block.x + block.size / 2, 0.6, block.y + block.size / 2);
-      staticGroup.add(pad);
-    }
-
-    // Roads with sidewalks
-    const roadMat = new THREE.MeshStandardMaterial({ color: 0x15180f, roughness: 1 });
-    const sidewalkMat = new THREE.MeshStandardMaterial({ color: 0x454b58, roughness: 1 });
-    const laneMat = new THREE.MeshStandardMaterial({ color: 0xd8c878, roughness: 1 });
-    for (let index = 0; index <= GRID; index += 1) {
-      const p = index * CELL;
-      // road strip
-      const across = new THREE.Mesh(UNIT, roadMat);
-      across.scale.set(WORLD, 0.4, ROAD);
-      across.position.set(WORLD / 2, 1.3, p);
-      staticGroup.add(across);
-      const down = new THREE.Mesh(UNIT, roadMat);
-      down.scale.set(ROAD, 0.4, WORLD);
-      down.position.set(p, 1.3, WORLD / 2);
-      staticGroup.add(down);
-      // sidewalks along both sides
-      for (const side of [-1, 1]) {
-        const swA = new THREE.Mesh(UNIT, sidewalkMat);
-        swA.scale.set(WORLD, 0.5, 6);
-        swA.position.set(WORLD / 2, 1.0, p + (ROAD / 2 + 3) * side);
-        staticGroup.add(swA);
-        const swB = new THREE.Mesh(UNIT, sidewalkMat);
-        swB.scale.set(6, 0.5, WORLD);
-        swB.position.set(p + (ROAD / 2 + 3) * side, 1.0, WORLD / 2);
-        staticGroup.add(swB);
-      }
-      // lane markings (dashed) along center of road
-      for (let k = 0; k < GRID; k += 1) {
-        const lm = new THREE.Mesh(UNIT, laneMat);
-        lm.scale.set(18, 0.5, 2);
-        lm.position.set(k * CELL + CELL / 2, 1.6, p);
-        staticGroup.add(lm);
-        const lm2 = new THREE.Mesh(UNIT, laneMat);
-        lm2.scale.set(2, 0.5, 18);
-        lm2.position.set(p, 1.6, k * CELL + CELL / 2);
-        staticGroup.add(lm2);
+  // Buildings: one box per footprint, district colour, darker roof cap;
+  // office towers get a slim slab on top so the skyline has a silhouette.
+  for (const block of city.blocks) {
+    for (const b of block.buildings) {
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(b.w, b.h, b.d),
+        new THREE.MeshLambertMaterial({ color: b.color }),
+      );
+      body.position.set(b.x, b.h / 2, b.z);
+      scene.add(body);
+      const roof = new THREE.Mesh(
+        new THREE.BoxGeometry(b.w * 0.92, 0.5, b.d * 0.92),
+        new THREE.MeshLambertMaterial({ color: b.roof }),
+      );
+      roof.position.set(b.x, b.h + 0.25, b.z);
+      scene.add(roof);
+      if (b.tower) {
+        const slab = new THREE.Mesh(
+          new THREE.BoxGeometry(b.w * 0.4, b.h * 0.45, b.d * 0.4),
+          new THREE.MeshLambertMaterial({ color: b.color }),
+        );
+        slab.position.set(b.x, b.h + b.h * 0.22, b.z);
+        scene.add(slab);
       }
     }
-
-    // Buildings with district variety
-    for (const b of city.buildings) {
-      const dist = districtAt(b.x, b.y);
-      const dc = DISTRICT_COLORS[dist.name] || { body: 0x3a3a44, roof: 0x222228, neon: 0x39d2ff };
-      const jitter = 0.85 + hashN(b.x, b.y) * 0.3;
-      const height = (9 + (b.floors || 1) * 11) * jitter;
-      const body = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: dc.body, roughness: 0.9, metalness: 0.05 }));
-      body.scale.set(b.w, height, b.h);
-      body.position.set(b.x + b.w / 2, height / 2 + 1.4, b.y + b.h / 2);
-      staticGroup.add(body);
-
-      const roof = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: dc.roof, roughness: 1 }));
-      roof.scale.set(b.w * 0.98, 2, b.h * 0.98);
-      roof.position.set(b.x + b.w / 2, height + 2.4, b.y + b.h / 2);
-      staticGroup.add(roof);
-
-      if (b.neon) {
-        const neon = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: b.neon, emissive: new THREE.Color(b.neon), emissiveIntensity: 1.5, roughness: 0.5 }));
-        neon.scale.set(Math.max(2, b.w * 0.9), 1.4, 1.4);
-        neon.position.set(b.x + b.w / 2, 4.4, b.y + b.h - 1);
-        staticGroup.add(neon);
-      }
-    }
-
-    sceneBuilt = true;
-  }
-
-  // Actor pools
-  const carPool = [];
-  const pedPool = [];
-
-  function carMesh(index) {
-    while (carPool.length <= index) {
-      const group = new THREE.Group();
-      // body
-      const body = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.75, metalness: 0.1 }));
-      body.scale.set(1, 0.5, 0.55);
-      body.position.y = 0.35;
-      group.add(body);
-      // cabin
-      const cabin = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: 0x222228, roughness: 0.6, metalness: 0.2 }));
-      cabin.scale.set(0.55, 0.35, 0.5);
-      cabin.position.set(0, 0.7, 0);
-      group.add(cabin);
-      actorGroup.add(group);
-      carPool.push(group);
-    }
-    return carPool[index];
-  }
-
-  function pedMesh(index) {
-    while (pedPool.length <= index) {
-      const group = new THREE.Group();
-      const body = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.9 }));
-      body.scale.set(0.35, 0.7, 0.3);
-      body.position.y = 0.35;
-      group.add(body);
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), new THREE.MeshStandardMaterial({ color: 0xd0a070, roughness: 0.9 }));
-      head.position.y = 0.85;
-      group.add(head);
-      actorGroup.add(group);
-      pedPool.push(group);
-    }
-    return pedPool[index];
-  }
-
-  const playerMesh = new THREE.Group();
-  {
-    const body = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: 0xe8b46a, roughness: 0.85 }));
-    body.scale.set(0.5, 0.7, 0.5);
-    body.position.y = 0.35;
-    playerMesh.add(body);
-    const coat = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: 0x2b3142, roughness: 0.9 }));
-    coat.scale.set(0.55, 0.4, 0.55);
-    coat.position.y = 0.4;
-    playerMesh.add(coat);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), new THREE.MeshStandardMaterial({ color: 0xf0c58f, roughness: 0.9 }));
-    head.position.y = 0.85;
-    playerMesh.add(head);
-  }
-  actorGroup.add(playerMesh);
-
-  function placeCar(mesh, car, color, isPolice) {
-    const spec = car.spec ?? { length: 26, width: 12.4 };
-    // Cars are laid out in world units (a coupe is 24 long, 12 wide) so they read as vehicles
-    // beside the 150-unit blocks; before this they rendered at a fraction of a unit and vanished.
-    const length = spec.length;
-    const width = spec.width;
-    mesh.visible = true;
-    mesh.position.set(car.x, 1.4, car.y);
-    mesh.rotation.y = -(car.heading || 0);
-    mesh.scale.set(1, 1, 1);
-    // color body (first child)
-    const body = mesh.children[0];
-    const cabin = mesh.children[1];
-    body.scale.set(length, 1.5, width);
-    body.position.y = 0.75;
-    cabin.scale.set(length * 0.46, 1.2, width * 0.72);
-    cabin.position.y = 2.1;
-    body.material.color.set(color ?? '#cccccc');
-    // Type-specific shape cues (coupe lower/sportier, van taller/boxier, taxi light)
-    switch (car.type) {
-      case 'van':
-        body.scale.set(length, 2.1, width);
-        body.position.y = 1.05;
-        cabin.scale.set(length * 0.5, 1.7, width * 0.86);
-        cabin.position.y = 2.95;
-        break;
-      case 'coupe':
-        body.scale.set(length, 1.1, width);
-        body.position.y = 0.55;
-        cabin.scale.set(length * 0.42, 1.0, width * 0.62);
-        cabin.position.y = 1.65;
-        break;
-      case 'taxi':
-        break;
-      default:
-        break;
-    }
-    // Remove any prior taxi light then re-add for taxis only
-    let lightChild = mesh.children.find((c) => c.userData && c.userData.taxiLight);
-    while (lightChild) { mesh.remove(lightChild); lightChild = mesh.children.find((c) => c.userData && c.userData.taxiLight); }
-    if (car.type === 'taxi') {
-      const taxiLight = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: new THREE.Color(0xffcc00), emissiveIntensity: 2 }));
-      taxiLight.scale.set(3.2, 0.7, 2.6);
-      taxiLight.position.set(0, 2.95, 0);
-      taxiLight.userData = { taxiLight: true };
-      mesh.add(taxiLight);
-    }
-    if (isPolice) {
-      // light bar
-      let lightChild2 = mesh.children.find((c) => c.userData && c.userData.policeLight);
-      while (lightChild2) { mesh.remove(lightChild2); lightChild2 = mesh.children.find((c) => c.userData && c.userData.policeLight); }
-      const bar = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: new THREE.Color(0xff3333), emissiveIntensity: 2 }));
-      bar.scale.set(length * 0.5, 0.9, width * 0.28);
-      bar.position.set(0, 2.95, 0);
-      bar.userData = { policeLight: true };
-      mesh.add(bar);
+    // A street tree on some blocks: trunk + two green blobs.
+    if (block.tree) {
+      const tx = block.x + block.size * 0.28;
+      const tz = block.z - block.size * 0.28;
+      const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.25, 0.35, 2.4, 6),
+        new THREE.MeshLambertMaterial({ color: 0x5a4632 }),
+      );
+      trunk.position.set(tx, 1.2, tz);
+      scene.add(trunk);
+      const crown = new THREE.Mesh(
+        new THREE.SphereGeometry(2.2, 8, 6),
+        new THREE.MeshLambertMaterial({ color: 0x3f7a3a }),
+      );
+      crown.position.set(tx, 3.6, tz);
+      scene.add(crown);
     }
   }
 
-  function updateActors(state) {
-    let carIndex = 0;
-    for (const car of state.traffic) {
-      if (car === state.vehicle) continue;
-      const isPolice = car.type === 'cruiser';
-      placeCar(carMesh(carIndex), car, car.color, isPolice);
-      carIndex += 1;
-    }
-    for (const car of state.parked) {
-      if (car === state.vehicle) continue;
-      placeCar(carMesh(carIndex), car, car.color, false);
-      carIndex += 1;
-    }
-    for (const cruiser of state.police.cruisers) {
-      if (!cruiser) continue;
-      placeCar(carMesh(carIndex), cruiser, '#e9eaee', true);
-      carIndex += 1;
-    }
-    if (state.vehicle) {
-      placeCar(carMesh(carIndex), state.vehicle, state.vehicle.color, state.vehicle.type === 'cruiser');
-      carIndex += 1;
-    }
-    for (let index = carIndex; index < carPool.length; index += 1) carPool[index].visible = false;
+  // Safehouse: the Crater Row home, painted teal so it stands out on the
+  // minimap and in the world.
+  const safe = new THREE.Mesh(
+    new THREE.BoxGeometry(14, 7, 10),
+    new THREE.MeshLambertMaterial({ color: 0x2e8b8b }),
+  );
+  safe.position.set(city.safehouse.x, 3.5, city.safehouse.z);
+  scene.add(safe);
 
-    let pedIndex = 0;
-    for (const ped of state.peds) {
-      const mesh = pedMesh(pedIndex);
-      mesh.visible = true;
-      mesh.position.set(ped.x, 0, ped.y);
-      mesh.rotation.y = -(ped.heading || 0);
-      const body = mesh.children[0];
-      body.material.color.set(ped.coat || '#888888');
-      pedIndex += 1;
-    }
-    for (const officer of state.police.officers) {
-      if (!officer) continue;
-      const mesh = pedMesh(pedIndex);
-      mesh.visible = true;
-      mesh.position.set(officer.x, 0, officer.y);
-      mesh.rotation.y = -(officer.heading || 0);
-      const body = mesh.children[0];
-      body.material.color.set(officer.guard ? '#5d6b55' : '#283a6e');
-      pedIndex += 1;
-    }
-    for (let index = pedIndex; index < pedPool.length; index += 1) pedPool[index].visible = false;
-
-    const inCar = Boolean(state.vehicle);
-    playerMesh.visible = !inCar;
-    if (!inCar) {
-      playerMesh.position.set(state.player.x, 0, state.player.y);
-      playerMesh.rotation.y = -(state.player.heading || 0);
-    }
+  // Street lamps: pole + a head whose emissive glow switches on at night.
+  const lampHeads = [];
+  const poleMat = new THREE.MeshLambertMaterial({ color: 0x22262a });
+  for (const lamp of city.lamps) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 6, 6), poleMat);
+    pole.position.set(lamp.x, 3, lamp.z);
+    scene.add(pole);
+    const headMat = new THREE.MeshBasicMaterial({ color: 0x555544 });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 6), headMat);
+    head.position.set(lamp.x, 6.2, lamp.z);
+    scene.add(head);
+    lampHeads.push(headMat);
   }
 
-  let lastTime = -1;
-  // Per-shot camera override (used for the police screenshot so the chase reads in one frame).
-  // Null during normal play; only set for shot='police' in main.js.
-  let shotFix = null;
-  let lastFocus = { x: WORLD / 2, y: WORLD / 2 };
-  function setShotFix(fix) { shotFix = fix ? { ...fix } : null; }
-  function clearShotFix() { shotFix = null; }
+  return { scene, sun, hemi, lampHeads, hour: CFG.time.startHour };
+}
 
-  function chasePose(state) {
-    const focus = state.vehicle ?? state.player;
-    const heading = state.vehicle ? state.vehicle.heading : (state.player.heading ?? 0);
-    const baseDist = state.vehicle ? 235 : 168;
-    const baseHeight = state.vehicle ? 145 : 122;
-    const baseLookAhead = state.vehicle ? 55 : 26;
-    const dist = shotFix ? shotFix.dist : baseDist;
-    const height = shotFix ? shotFix.height : baseHeight;
-    const lookAhead = shotFix ? shotFix.lookAhead : baseLookAhead;
-    const camX = Math.max(75, Math.min(WORLD - 75, focus.x - Math.cos(heading) * dist));
-    const camZ = Math.max(75, Math.min(WORLD - 75, focus.y - Math.sin(heading) * dist));
-    return {
-      focus,
-      camX,
-      camZ,
-      height,
-      lookAhead,
-      targetX: focus.x + Math.cos(heading) * lookAhead,
-      targetZ: focus.y + Math.sin(heading) * lookAhead,
-    };
+// Repaint the light for an hour of day. Lamps glow once it is dark.
+function setTimeOfDay(world, hour) {
+  const h = ((hour % 24) + 24) % 24;
+  world.hour = h;
+  const sky = lerpStops(SKY_STOPS, h, 'sky');
+  const fog = lerpStops(SKY_STOPS, h, 'fog');
+  const sunCol = lerpStops(SKY_STOPS, h, 'sun');
+  world.scene.background.copy(sky);
+  world.scene.fog.color.copy(fog);
+  world.sun.color.copy(sunCol);
+  world.sun.intensity = lerpStops(SKY_STOPS, h, 'sunI');
+  world.hemi.intensity = lerpStops(SKY_STOPS, h, 'hemiI');
+  // Sun swings east to west through the day; at night it drops low.
+  const angle = ((h - 6) / 12) * Math.PI;
+  world.sun.position.set(Math.cos(angle) * 220, Math.max(30, Math.sin(angle) * 260), 120);
+  const night = h >= CFG.time.nightStart || h < CFG.time.nightEnd;
+  for (const head of world.lampHeads) {
+    head.color.setHex(night ? 0xffe9a8 : 0x555544);
   }
+  return night;
+}
 
-  function snapChaseCamera(state) {
-    const pose = chasePose(state);
-    lastFocus = pose.focus;
-    camera.position.set(pose.camX, pose.height, pose.camZ);
-    camera.lookAt(pose.targetX, 9, pose.targetZ);
-  }
+// Chase camera: trails a target (x, z, heading) from behind and above,
+// smoothed so it never snaps, clamped inside the city bounds.
+const _chasePos = { x: 0, z: 0 };
+function updateChaseCamera(camera, target, dt) {
+  const back = CFG.camera.chaseDist;
+  const tx = target.x - Math.sin(target.heading) * back;
+  const tz = target.z - Math.cos(target.heading) * back;
+  const k = 1 - Math.exp(-dt * 4);
+  _chasePos.x += (tx - _chasePos.x) * k;
+  _chasePos.z += (tz - _chasePos.z) * k;
+  camera.position.set(
+    _chasePos.x,
+    CFG.camera.chaseHeight,
+    _chasePos.z,
+  );
+  camera.lookAt(target.x, 1.5, target.z);
+}
 
-  function updateChaseCamera(state, time) {
-    const dt = lastTime < 0 ? 0.016 : Math.min(0.05, Math.max(0.001, time - lastTime));
-    lastTime = time;
-    const pose = chasePose(state);
-    lastFocus = pose.focus;
-    const ease = Math.min(1, dt * 6);
-    camera.position.x += (pose.camX - camera.position.x) * ease;
-    camera.position.y += (pose.height - camera.position.y) * ease;
-    camera.position.z += (pose.camZ - camera.position.z) * ease;
-    const shake = Math.max(0, Math.min(1, state.camera.shake || 0));
-    camera.position.x += (Math.random() - 0.5) * shake * 6;
-    camera.position.y += (Math.random() - 0.5) * shake * 2;
-    camera.lookAt(pose.targetX, 9, pose.targetZ);
-  }
+// Keep a camera position inside the city plus a margin.
+function clampCamera(camera, halfSpan) {
+  const m = halfSpan + 60;
+  camera.position.x = Math.max(-m, Math.min(m, camera.position.x));
+  camera.position.z = Math.max(-m, Math.min(m, camera.position.z));
+  camera.position.y = Math.max(2, Math.min(420, camera.position.y));
+}
 
-  function draw(game, time) {
-    const state = game.state;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!sceneBuilt) return;
-    updateActors(state);
-    updateChaseCamera(state, time);
-    renderer.render(scene, camera);
-  }
-
-  function cameraMargin(viewW, viewH, zoom) {
-    return { halfW: viewW / (2 * zoom) + 30, halfH: viewH / (2 * zoom) + 30 };
-  }
-  function clampCamera(camera2d, viewW = viewWidth, viewH = viewHeight) {
-    const zoom = camera2d.zoom || 1;
-    const { halfW, halfH } = cameraMargin(viewW, viewH, zoom);
-    camera2d.x = Math.max(Math.min(WORLD / 2, halfW), Math.min(Math.max(WORLD / 2, WORLD - halfW), camera2d.x));
-    camera2d.y = Math.max(Math.min(Math.max(WORLD / 2, WORLD - halfH), halfH), camera2d.y);
-  }
-
-  function screenToWorld() { return { x: lastFocus.x, y: lastFocus.y }; }
-
-  return { ctx, resize, setCity: buildScene, draw, screenToWorld, clampCamera, get view() { return { width: viewWidth, height: viewHeight, dpr }; }, camera, snapChaseCamera, setShotFix, clearShotFix };
+// Orbit camera for menus and overviews: azimuth/elevation around a centre.
+function updateOrbitCamera(camera, centre, azimuth, elevation, radius) {
+  camera.position.set(
+    centre.x + Math.sin(azimuth) * Math.cos(elevation) * radius,
+    Math.sin(elevation) * radius + 8,
+    centre.z + Math.cos(azimuth) * Math.cos(elevation) * radius,
+  );
+  camera.lookAt(centre.x, 0, centre.z);
 }

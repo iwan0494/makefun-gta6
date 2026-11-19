@@ -1,143 +1,230 @@
-// story.js — the story of Tallow Point: five jobs for a courier who starts with an empty
-// pocket and a borrowed phone, their dialogue, and the tiny state each job needs. Every name,
-// place and line is written for this game.
-import { CELL } from './config.js';
+'use strict';
+// Tallow Point — story missions (R4-3, fresh from the R4 spec).
+// Five sequential jobs: steal a car and lose the heat, courier a package
+// across town, lift a ledger at the docks, steal a target coupe, and
+// survive a three-star escape. One mission is active at a time; finishing
+// one pays cash and opens the next. A floating gold marker shows the
+// target on the street and on the minimap (via state.objectivePos).
 
-export const CHARACTERS = {
-  barber: { name: 'Della Cask', role: 'barber and fixer', color: '#ffc94a', lines: [
-    'You owe me, courier. First job is a rent collector that has stopped collecting.',
-    'Mick Barrs keeps the parcel books at the wharf. Take his ledger and bring it to me, and the debt is square.',
-    'If Barrs runs, the crows at the dock will find him.',
-  ] },
-  cop: { name: 'Wendell Ash', role: 'pd union rep', color: '#5aa8ff', lines: [
-    'Della sent you. Good. I want the man who leaned on my accountant, not a war.',
-    'Tail the cruiser from here to the impound lot. Keep a car length, keep the horn quiet.',
-    'Reach the lot with your tail intact and I will owe you one.',
-  ] },
-  dockhand: { name: 'Cy Proudfoot', role: 'dockhand', color: '#58b46a', lines: [
-    "Barrs keeps the ledger copy on the Marrow that is not talking.",
-    'That old hull on the east water. Get aboard, grab the case, get out, and do not get shredded.',
-    'Two men on watch. Maybe three. Bring a friend, or bring a gun.',
-  ] },
-  runner: { name: 'Vex', role: 'street runner', color: '#ff5ea8', lines: [
-    'Barrs is in the wind. He is at the Sunmere docks holding a briefcase.',
-    'You get him off the docks alive. The stripes will be thick once they hear.',
-    'Run him to the safehouse in Crater Row. Do not stop for the flashing lights.',
-  ] },
-  builder: { name: 'Ruth Okoro', role: 'crane of the bay', color: '#39d2ff', lines: [
-    'The parcel operation is done as of tonight. Ostrander Bank is doing its books at midnight.',
-    'Take the cash crate off the north gate before the manager moves it. One car, one crate, no excuses.',
-    'Then come home to Sunmere and we will call Tallow Point ours.',
-  ] },
-};
+function createStory(state, scene) {
+  const city = state.city;
+  // Mission targets, picked from the city data itself.
+  const sunmere = city.blockCenter(5, 5);
+  const wharf = city.blockCenter(1, 0);
+  const northline = city.blockCenter(1, 3);
+  const home = { x: city.safehouse.x, z: city.safehouse.z };
 
-export const MISSIONS = [
-  {
-    id: 'ledger',
-    number: '01',
-    title: 'Ledger Run',
-    giver: 'barber',
-    kind: 'carry',
-    start: { x: 2, y: 3 },
-    goal: { x: 5.4, y: 4.35 },
-    money: 450,
-    brief: "Walk to the barbershop on Crater Row, take Della's car to Kessel Wharf and bring back Mick Barrs's ledger.",
-  },
-  {
-    id: 'shadow',
-    number: '02',
-    title: 'Silent Partner',
-    giver: 'cop',
-    kind: 'tail',
-    start: { x: 1.5, y: 2.5 },
-    goal: { x: 3.5, y: 2.2 },
-    money: 600,
-    brief: 'Follow the plain cruiser from Crater Row to the impound lot on Moraine Heights without being seen.',
-  },
-  {
-    id: 'docks',
-    number: '03',
-    title: 'Low Tide',
-    giver: 'dockhand',
-    kind: 'raid',
-    spawn: { x: 68, y: 54, count: 4 },
-    start: { x: 5, y: 5 },
-    goal: { x: 6.2, y: 5.2 },
-    money: 800,
-    brief: 'Board the Marrow at Kessel Wharf, clear its guards and take the ledger copy.',
-  },
-  {
-    id: 'extract',
-    number: '04',
-    title: 'Extraction',
-    giver: 'runner',
-    kind: 'escort',
-    start: { x: 3.1, y: 1.2 },
-    goal: { x: 1.4, y: 3.4 },
-    money: 1200,
-    brief: 'Pick up Vex in Sunmere, then drive them to the safehouse in Crater Row with the police behind you.',
-  },
-  {
-    id: 'vault',
-    number: '05',
-    title: 'The Bay Run',
-    giver: 'builder',
-    kind: 'heist',
-    start: { x: 3.6, y: 4.3 },
-    goal: { x: 0.5, y: 1.5 },
-    money: 2500,
-    brief: "Lift Ostrander Bank's cash crate in Northline and bring it back to the Sunset kitchen in Sunmere.",
-  },
-  {
-    id: 'courier',
-    number: '06',
-    title: 'Final Run',
-    giver: 'builder',
-    kind: 'delivery',
-    pickups: [{ x: 1.2, y: 0.6 }, { x: 5.6, y: 2.4 }, { x: 4.1, y: 5.6 }],
-    start: { x: 3.6, y: 4.3 },
-    goal: { x: 0.5, y: 1.5 },
-    money: 3500,
-    brief: 'Collect three parcels across the bay and run them to the safehouse in Crater Row before dawn.',
-  },
-];
+  const defs = [
+    {
+      id: 'wheels', name: 'First Wheels', reward: 150,
+      brief: 'Steal any parked car, then lose the heat.',
+      steps: [
+        'Steal any parked car (walk up and press E).',
+        'Lose the heat — get back to 0 stars.',
+      ],
+    },
+    {
+      id: 'courier', name: 'Courier Run', reward: 200,
+      brief: 'Drive the package to Sunmere before the trail goes cold.',
+      steps: ['Deliver the package to the Sunmere marker.'],
+      target: { x: sunmere.x, z: sunmere.z },
+      limitSec: 55,
+    },
+    {
+      id: 'ledger', name: 'Dockside Ledger', reward: 300,
+      brief: 'Lift the ledger at Kessel Wharf, then bring it home.',
+      steps: [
+        'Reach the Kessel Wharf marker and lift the ledger.',
+        'Bring the ledger back to the Crater Row safehouse.',
+      ],
+      target: { x: wharf.x, z: wharf.z },
+      home: { x: home.x, z: home.z },
+    },
+    {
+      id: 'hotwheels', name: 'Hot Wheels', reward: 400,
+      brief: 'Steal the gold coupe and deliver it to Northline.',
+      steps: ['Steal the gold coupe, then drive it to Northline.'],
+      target: { x: northline.x, z: northline.z },
+    },
+    {
+      id: 'vaultrun', name: 'The Vault Run', reward: 600,
+      brief: 'Three stars on your tail — survive a minute, then get home.',
+      steps: ['Survive 60 seconds at 3 stars, then reach the safehouse.'],
+      home: { x: home.x, z: home.z },
+      surviveSec: 60,
+    },
+  ];
 
-export const START_CELL = { x: 1.7, y: 3.45 };
-export const SHOP_CELL = { x: 2.3, y: 3.6 };
-export const SUNMERE_CELL = { x: 3.6, y: 3.5 };
-export const DOCK_CELL = { x: 6.25, y: 5.2 };
-export const NORTH_CELL = { x: 1.5, y: 0.6 };
+  const markerGeo = new THREE.OctahedronGeometry(1.3);
+  const markerMat = new THREE.MeshLambertMaterial({ color: 0xffd23e });
+  const marker = new THREE.Mesh(markerGeo, markerMat);
+  marker.visible = false;
+  scene.add(marker);
 
-export function missionWorldPoint(cell) {
-  return { x: cell.x * CELL, y: cell.y * CELL };
+  const story = {
+    defs, index: 0, active: null, done: [],
+    marker, dirty: true, scene,
+  };
+  return story;
 }
 
-// What the objective line under the minimap says while a job runs.
-export function objectiveText(mission, state) {
-  if (!mission) return 'No job. Look for the gold markers on the map.';
-  const carry = state.carryingLedger ? 'Ledger in hand. ' : '';
-  switch (mission.kind) {
-    case 'carry':
-      if (state.carryingLedger) return carry + 'Return the ledger to Della at the barbershop in Crater Row.';
-      if (state.inVehicle) return 'Drive to the wharf marker and find Barrs.';
-      return 'Get to the wharf, then bring the ledger back to Crater Row.';
-    case 'tail':
-      return state.tailLost ? 'You lost the cruiser. Catch up before the lot.' : 'Stay behind the plain cruiser, at least half a block back.';
-    case 'raid':
-      if (state.guardsLeft > 0) return `Board the Marrow and drop its watch: ${state.guardsLeft} still standing.`;
-      if (!state.carryingLedger) return 'Case in hand. Get it off the deck and run.';
-      return 'The case is yours. Take it to Vex in Sunmere.';
-    case 'escort':
-      if (!state.passenger) return 'Pick up Vex at the Sunmere docks.';
-      return 'Drive Vex to the safehouse in Crater Row without bailing.';
-    case 'heist':
-      if (!state.carryingCrate) return 'Reach Ostrander Bank in Northline and lift the cash crate.';
-      return 'Drive the crate back to the Sunset kitchen in Sunmere.';
-    case 'delivery':
-      if (state.packagesCollected === undefined) state.packagesCollected = 0;
-      if (state.packagesCollected < mission.pickups.length) return `Parcel ${state.packagesCollected + 1} of ${mission.pickups.length} — reach the gold marker to collect.`;
-      return 'All parcels secured. Deliver them to the safehouse in Crater Row.';
+function resetStory(story) {
+  story.index = 0;
+  story.done = [];
+  story.active = null;
+  story.marker.visible = false;
+  story.dirty = true;
+}
+
+// Names for the menu list: done, in progress, locked.
+function menuNames(story) {
+  return story.defs.map((d, i) => {
+    const n = String(i + 1).padStart(2, '0');
+    if (story.done.indexOf(d.id) >= 0) return '✓ ' + n + ' — ' + d.name + ' — done';
+    if (i === story.index) return '▶ ' + n + ' — ' + d.name + ' — in progress';
+    return '· ' + n + ' — ' + d.name + ' — locked';
+  });
+}
+
+// Begin the next unplayed mission, if any is left.
+function startMission(state, story) {
+  if (story.index >= story.defs.length) return false;
+  const def = story.defs[story.index];
+  const active = { def, step: 0, t0: state.time, failed: false, targetCar: null };
+  if (def.id === 'courier') active.deadline = state.time + def.limitSec;
+  if (def.id === 'hotwheels') {
+    // The target is one real parked car: paint it gold so it stands out.
+    const car = state.parkedCars[3];
+    active.targetCar = car;
+    if (car && car.mesh && car.mesh.children.length) {
+      car.mesh.children[0].material.color.setHex(0xd8b13c);
+    }
+  }
+  if (def.id === 'vaultrun') addHeat(state, CFG.wanted.starAt[3]);
+  story.active = active;
+  state.mission = def.id;
+  state.missionIndex = story.index;
+  setObjective(state, def.steps[0]);
+  story.marker.visible = true;
+  story.dirty = true;
+  return true;
+}
+
+function completeMission(state, story) {
+  const active = story.active;
+  const def = active.def;
+  state.cash += def.reward;
+  story.done.push(def.id);
+  story.index++;
+  story.active = null;
+  state.mission = null;
+  state.missionIndex = story.index;
+  story.marker.visible = false;
+  story.dirty = true;
+  if (story.index >= story.defs.length) {
+    setObjective(state, 'All five jobs done — Tallow Point is yours. ($' + def.reward + ' banked)');
+  } else {
+    setObjective(state, 'Job done — $' + def.reward + ' banked. Next: ' + story.defs[story.index].name + '.');
+  }
+  if (state.audio) state.audio.pickup();
+}
+
+// A failed run restarts the same mission, not the whole story.
+function failMission(state, story, reason) {
+  const def = story.active.def;
+  story.active = null;
+  setObjective(state, reason + ' — try again: ' + def.name + '.');
+  story.dirty = true;
+  startMission(state, story);
+}
+
+function near(x1, z1, x2, z2, r) {
+  return Math.hypot(x1 - x2, z1 - z2) < r;
+}
+
+function updateStory(state, dt) {
+  const story = state.story;
+  if (!story) return;
+  if (!story.active) {
+    if (story.index < story.defs.length && state.mode === 'playing') {
+      startMission(state, story);
+    }
+    return;
+  }
+  const active = story.active;
+  const def = active.def;
+  const p = state.player;
+
+  // The Vault Run restarts when the player gets busted mid-escape.
+  if (def.id === 'vaultrun' && state.mode === 'busted') active.failed = true;
+  if (active.failed && state.mode === 'playing') {
+    active.failed = false;
+    active.t0 = state.time;
+    addHeat(state, CFG.wanted.starAt[3]);
+    setObjective(state, def.steps[0]);
+  }
+
+  // Marker follows the active target (or the gold coupe itself).
+  const m = story.marker;
+  if (def.id === 'hotwheels' && active.targetCar) {
+    m.position.set(active.targetCar.x, 3 + Math.sin(state.time * 3) * 0.5, active.targetCar.z);
+  } else if (def.target) {
+    const at = def.id === 'ledger' && active.step === 1 ? def.home : def.target;
+    m.position.set(at.x, 3 + Math.sin(state.time * 3) * 0.5, at.z);
+  } else if (def.home) {
+    m.position.set(def.home.x, 3 + Math.sin(state.time * 3) * 0.5, def.home.z);
+  }
+  m.rotation.y += dt * 1.5;
+  if (def.id === 'courier' || def.id === 'ledger' || def.id === 'hotwheels') {
+    const at = def.id === 'ledger' && active.step === 1 ? def.home : def.target;
+    state.objectivePos = { x: at.x, z: at.z };
+  } else {
+    state.objectivePos = null;
+  }
+
+  switch (def.id) {
+    case 'wheels': {
+      if (active.step === 0 && !p.onFoot && p.car) {
+        active.step = 1;
+        setObjective(state, def.steps[1]);
+      } else if (active.step === 1 && state.stars === 0) {
+        completeMission(state, story);
+      }
+      break;
+    }
+    case 'courier': {
+      if (near(p.x, p.z, def.target.x, def.target.z, 8)) {
+        completeMission(state, story);
+      } else if (state.time > active.deadline) {
+        failMission(state, story, 'Too slow — the package is late');
+      }
+      break;
+    }
+    case 'ledger': {
+      if (active.step === 0 && near(p.x, p.z, def.target.x, def.target.z, 8)) {
+        active.step = 1;
+        setObjective(state, def.steps[1]);
+      } else if (active.step === 1 && near(p.x, p.z, def.home.x, def.home.z, 10)) {
+        completeMission(state, story);
+      }
+      break;
+    }
+    case 'hotwheels': {
+      if (p.car === active.targetCar
+        && near(p.x, p.z, def.target.x, def.target.z, 8)) {
+        completeMission(state, story);
+      }
+      break;
+    }
+    case 'vaultrun': {
+      if (state.mode === 'playing'
+        && state.time - active.t0 >= def.surviveSec
+        && near(p.x, p.z, def.home.x, def.home.z, 10)) {
+        completeMission(state, story);
+      }
+      break;
+    }
     default:
-      return mission.brief;
+      break;
   }
 }

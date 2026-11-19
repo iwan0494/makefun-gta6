@@ -1,51 +1,82 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tallow Point — an open-city crime story</title>
-<meta name="description" content="Tallow Point: an original top-down open-world crime game in the browser. Five jobs, five stars, one bay.">
+<link rel="icon" href="data:,">
+<title>Tallow Point — open-world crime</title>
 <style>
-  html, body {
-    margin: 0;
-    height: 100%;
-    overflow: hidden;
-    background: #0a0d18;
-    color: #f3f0e6;
-    font-family: "Sora", "Trebuchet MS", system-ui, sans-serif;
-    cursor: crosshair;
-    user-select: none;
-  }
-  canvas { display: block; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; }
-  #hud, #menu { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-  #menu { pointer-events: auto; cursor: pointer; }
-  #boot {
-    position: fixed; inset: 0; display: grid; place-items: center;
-    background: #0a0d18; font-size: 14px; letter-spacing: 2px; text-transform: uppercase;
-    color: #ffc94a; transition: opacity 0.4s ease;
-  }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+    background: #0b1026; font-family: 'Segoe UI', system-ui, sans-serif; }
+  #game { position: fixed; inset: 0; display: block; }
+  .hud { position: fixed; z-index: 5; color: #fff; text-shadow: 0 1px 3px #000;
+    pointer-events: none; user-select: none; }
+  #hud-topleft { top: 14px; left: 16px; font-size: 20px; line-height: 1.35; }
+  #hud-topleft .cash { color: #7dff8a; font-weight: 700; font-size: 26px; }
+  .bar { width: 180px; height: 12px; background: rgba(0,0,0,.55); border: 1px solid #fff3;
+    margin-top: 4px; }
+  .bar > div { height: 100%; }
+  #life-fill { background: #37d67a; width: 100%; }
+  #armor-fill { background: #4aa3ff; width: 0%; }
+  #hud-topright { top: 14px; right: 16px; text-align: right; font-size: 20px; }
+  #wanted { font-size: 34px; letter-spacing: 4px; color: #ffd23e; }
+  #hud-objective { left: 16px; bottom: 16px; font-size: 19px; background: rgba(0,0,0,.5);
+    padding: 8px 12px; border-left: 4px solid #ffd23e; max-width: 520px; }
+  #minimap { position: fixed; right: 16px; bottom: 16px; z-index: 5; width: 208px; height: 208px;
+    border: 2px solid rgba(255,255,255,.65); background: rgba(8,12,24,.72); }
+  #menu { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; color: #fff; text-align: center;
+    background: linear-gradient(180deg, rgba(6,10,26,.25), rgba(6,10,26,.78)); }
+  #menu h1 { font-size: 64px; margin: 0; letter-spacing: 6px; text-shadow: 0 3px 18px #000; }
+  #menu p { margin: 0; font-size: 19px; max-width: 640px; text-shadow: 0 1px 4px #000; }
+  #menu button { pointer-events: auto; font-size: 22px; padding: 12px 34px; cursor: pointer;
+    background: #ffd23e; color: #191410; border: 0; font-weight: 700; letter-spacing: 1px; }
+  #menu button.secondary { background: #e8e8e8; }
+  #menu .districts { font-size: 15px; opacity: .9; }
+  .hidden { display: none !important; }
 </style>
 </head>
 <body>
-<div id="boot">Tallow Point</div>
-<canvas id="game" aria-label="Tallow Point: the 3D city, its traffic and the chase camera" role="img"></canvas>
-<script type="importmap">
-{
-  "imports": {
-    "three": "./vendor/three.min.js"
-  }
-}
-</script>
-<script type="module" src="./src/main.js"></script>
-<script>
-  window.addEventListener('load', () => {
-    setTimeout(() => {
-      const boot = document.getElementById('boot');
-      if (boot) boot.style.opacity = '0';
-      setTimeout(() => boot && boot.remove(), 500);
-    }, 120);
-  });
-</script>
+<canvas id="game"></canvas>
+
+<div class="hud" id="hud-topleft">
+  <div class="cash">$<span id="cash">250</span></div>
+  <div>LIFE</div><div class="bar"><div id="life-fill"></div></div>
+  <div>ARMOR</div><div class="bar"><div id="armor-fill"></div></div>
+</div>
+<div class="hud" id="hud-topright">
+  <div id="clock">09:30</div>
+  <div id="wanted"></div>
+</div>
+<div class="hud" id="hud-objective">Welcome to Tallow Point — explore the city. Your safehouse is in Crater Row.</div>
+<canvas id="minimap" width="208" height="208"></canvas>
+
+<div id="menu">
+  <h1>TALLOW POINT</h1>
+  <p>An open-world crime game. Walk the streets of a sun-soaked city, steal a car,
+     outrun the police, and work your way through five story missions.</p>
+  <p class="districts">Kessel Wharf &middot; Northline &middot; Moraine Heights &middot; Crater Row &middot; Sunmere</p>
+  <button id="btn-start">START A LIFE</button>
+  <button id="btn-new" class="secondary">NEW LIFE</button>
+  <p class="districts">WASD walk &middot; E steal car &middot; Space shoot &middot; F punch &middot; mouse camera &middot; R respawn</p>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="src/config.js"></script>
+<script src="src/random.js"></script>
+<script src="src/city.js"></script>
+<script src="src/render.js"></script>
+<script src="src/entities.js"></script>
+<script src="src/game.js"></script>
+<script src="src/input.js"></script>
+<script src="src/update.js"></script>
+<script src="src/hud.js"></script>
+<script src="src/menu.js"></script>
+<script src="src/police.js"></script>
+<script src="src/story.js"></script>
+<script src="src/save.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/combat.js"></script>
+<script src="src/main.js"></script>
 </body>
 </html>

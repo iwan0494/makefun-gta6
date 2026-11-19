@@ -1,75 +1,92 @@
-// config.js — the constants every other module shares. A camera looks down on one street
-// block at a time, so the units are easy to draw: one unit is one screen pixel at zoom 1.
-// The city is a grid of 7 x 7 road cells; each cell is one block with a street on its left
-// and top edge, which tiles into a road network without any special-case code.
-export const CELL = 150;
-export const GRID = 7;
-export const WORLD = CELL * GRID;
-export const ROAD = 24;
-export const LANE = 8;
-export const SIDEWALK = 6;
+'use strict';
+// Tallow Point — foundation tuning (R4-1, fresh from the R4 spec).
+// Every magic number of the city lives here so the other modules stay pure
+// data and rendering. Nothing here reads a file or the network.
 
-export const START_TIME = 21 * 60 + 40;
-export const DAY_MINUTES = 24 * 60;
+const CFG = Object.freeze({
+  // Deterministic world seed: the same seed always builds the same city.
+  seed: 1337,
 
-export const PLAYER_RADIUS = 5.5;
-export const CAR_HALF_LENGTH = 13;
-export const CAR_HALF_WIDTH = 6.2;
-export const CAR_MAX_SPEED = 205;
-export const CAR_ACCEL = 150;
-export const CAR_BRAKE = 320;
-export const CAR_REVERSE = 80;
-export const CAR_GRIP = 3.4;
+  city: Object.freeze({
+    grid: 7, // 7 x 7 blocks
+    block: 36, // side of one block, world units
+    road: 12, // road width, world units
+    sidewalk: 3, // sidewalk strip beside each road
+    // span = grid * block + (grid + 1) * road = 348; city is centred on (0, 0).
+    lampEvery: 2, // a street lamp at every 2nd intersection
+    treeChance: 0.35, // chance a block grows a street tree
+  }),
 
-export const WANTED_THRESHOLDS = [0, 45, 110, 200, 320, 460];
-export const WANTED_DECAY_DELAY = 22;
-export const WANTED_DECAY_RATE = 7;
+  // Five named districts. A block's district follows districtAt(row, col):
+  // west strip = Kessel Wharf; north rows = Northline / Moraine Heights;
+  // middle rows = Crater Row / Sunmere; south rows = Sunmere.
+  // style: building character. palette: facade colours. hMin/hMax: storeys
+  // are derived from height in world units, not storey counts.
+  districts: Object.freeze([
+    Object.freeze({
+      name: 'Kessel Wharf', style: 'warehouse',
+      palette: ['#8a6f4d', '#7d6a58', '#946b4a', '#6f5b45'],
+      hMin: 7, hMax: 14, roof: '#4a3f35',
+    }),
+    Object.freeze({
+      name: 'Northline', style: 'office',
+      palette: ['#5d7d99', '#6b8aa5', '#4f6d88', '#7a94a8'],
+      hMin: 26, hMax: 58, roof: '#2e3d4a',
+    }),
+    Object.freeze({
+      name: 'Moraine Heights', style: 'apartment',
+      palette: ['#a8765a', '#9c6f52', '#b0815f', '#8f6650'],
+      hMin: 14, hMax: 30, roof: '#5a4636',
+    }),
+    Object.freeze({
+      name: 'Crater Row', style: 'shop',
+      palette: ['#b09a6a', '#a8895c', '#c2a878', '#96794f'],
+      hMin: 8, hMax: 18, roof: '#4d4438',
+    }),
+    Object.freeze({
+      name: 'Sunmere', style: 'house',
+      palette: ['#c9b18c', '#d6c096', '#bfa67e', '#cdb489'],
+      hMin: 5, hMax: 10, roof: '#7a5c48',
+    }),
+  ]),
 
-export const PEDESTRIAN_COUNT = 68;
-export const TRAFFIC_COUNT = 18;
-export const COP_CAR_SLOTS = 4;
-export const FOOT_COP_SLOTS = 3;
+  time: Object.freeze({
+    dayLengthSec: 480, // one full day/night cycle while playing
+    startHour: 9.5, // morning light when a new life begins
+    dawn: 6, dusk: 18, nightStart: 20, nightEnd: 5,
+  }),
 
-export const PALETTE = {
-  night: '#0a0d18',
-  road: '#1c202b',
-  roadEdge: '#2b3140',
-  lane: 'rgba(226,214,160,0.42)',
-  curb: '#3a3f4b',
-  sidewalk: '#454b58',
-  grass: '#1f3a2e',
-  concrete: '#2f3441',
-  water: '#123048',
-  gold: '#ffc94a',
-  neon: '#39d2ff',
-  pink: '#ff5ea8',
-  red: '#ff4b4b',
-  blue: '#5aa8ff',
-  white: '#f3f0e6',
-  ink: '#0c0e14',
-};
+  player: Object.freeze({
+    walkSpeed: 6, runSpeed: 10, eyeHeight: 1.7,
+    startBlock: Object.freeze({ row: 3, col: 3 }), // safehouse, Crater Row
+  }),
 
-export const VEHICLE_TYPES = {
-  sedan: { length: 26, width: 12.4, speed: 1.0, mass: 1.0, colors: ['#c8c2b2', '#7d8794', '#37506e', '#6d2d2d', '#2c2c30', '#4f6b46'] },
-  taxi: { length: 27, width: 12.6, speed: 1.02, mass: 1.0, colors: ['#f2b52c', '#f2b52c'] },
-  van: { length: 32, width: 13.6, speed: 0.82, mass: 1.35, colors: ['#d9d4c4', '#8a5a33', '#334a5c'] },
-  coupe: { length: 24, width: 12.0, speed: 1.22, mass: 0.85, colors: ['#b8233a', '#1a1a22', '#3d7bd6', '#d9d9d9'] },
-  cruiser: { length: 27, width: 12.8, speed: 1.18, mass: 1.2, colors: ['#e8e8ea'] },
-  bike: { length: 14, width: 5.6, speed: 1.28, mass: 0.5, colors: ['#22252d', '#7c1f2c'] },
-};
+  car: Object.freeze({
+    playerModel: 'coupe',
+    accel: 14, brake: 26, maxSpeed: 34, turnRate: 1.9,
+    parkedCount: 24, trafficCount: 14,
+  }),
 
-export const VEHICLE_NAMES = {
-  sedan: ['Marlin 4', 'Vela GT', 'Ponto Sedan', 'Norwin'],
-  taxi: ['Dune Cab'],
-  van: ['Hauler LX', 'Ridge Van'],
-  coupe: ['Ferro S', 'Kite Coupe', 'Vesper RS'],
-  cruiser: ['Guardian 220'],
-  bike: ['Rook 125'],
-};
+  wanted: Object.freeze({
+    maxStars: 5,
+    stealHeat: 50, // stealing a parked car adds this much heat
+    starAt: Object.freeze([0, 45, 90, 140, 200, 280]), // heat per star
+    decayPerSec: 1.5, // heat cools while hidden / out of sight
+    roadblockAtStar: 3, // roadblocks appear at 3 stars and above
+    bustAtStar: 3, // BUSTED when a cruiser reaches the player on foot
+  }),
 
-export const BARBER_HAT_TIPS = [
-  'Tip: hold W longer than you think — full throttle is how you outrun the stripes.',
-  'Tip: walk into any parked car (E) and the city is yours.',
-  'Tip: losing the cops for 22 seconds cools the stars down.',
-  'Tip: a shotgun blast at close range ends most arguments.',
-];
+  camera: Object.freeze({
+    chaseDist: 13, chaseHeight: 5.2, chaseLook: 4,
+    orbitRadius: 240, orbitHeight: 150,
+    fov: 60, near: 0.5, far: 1200,
+  }),
+});
+
+// District lookup for a block (row, col), 0-based, 7 x 7.
+function districtAt(row, col) {
+  if (col <= 1) return CFG.districts[0]; // Kessel Wharf, west strip
+  if (row <= 2) return col <= 4 ? CFG.districts[1] : CFG.districts[2]; // Northline / Moraine Heights
+  if (row <= 4) return col <= 4 ? CFG.districts[3] : CFG.districts[4]; // Crater Row / Sunmere
+  return CFG.districts[4]; // Sunmere, south rows
+}

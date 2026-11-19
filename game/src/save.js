@@ -1,74 +1,52 @@
-// save.js — a save is three small JSON objects in localStorage: the player and the garage, the
-// job in progress, and what the world looked like (time of day, stolen cars). Reading a save
-// that does not parse, or was written by another game, is treated as no save at all.
-const KEY = 'tallow-point/save/v1';
-const SETTINGS_KEY = 'tallow-point/settings/v1';
+'use strict';
+// Tallow Point — save slot (R4-3, fresh from the R4 spec).
+// One save object owns the whole round-trip: the base snapshot from
+// game.js (cash, clock, position, mission index) plus the story progress
+// (which jobs are done). NEW LIFE wipes both keys. Everything is guarded
+// — a corrupt or private-mode slot never throws into the game loop.
 
-export function readSave() {
-  try {
-    const raw = globalThis.localStorage?.getItem(KEY);
-    if (!raw) return null;
-    const save = JSON.parse(raw);
-    if (!save || save.version !== 1 || typeof save.player?.x !== 'number') return null;
-    return save;
-  } catch {
-    return null;
-  }
-}
+const STORY_SAVE_KEY = 'tallow-point-story';
 
-export function writeSave(save) {
-  try {
-    globalThis.localStorage?.setItem(KEY, JSON.stringify(save));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function clearSave() {
-  try {
-    globalThis.localStorage?.removeItem(KEY);
-  } catch {
-    // private mode and file:// pages can refuse storage; the game still plays
-  }
-}
-
-export function readSettings() {
-  try {
-    const raw = globalThis.localStorage?.getItem(SETTINGS_KEY);
-    if (!raw) return { zoom: 1, muted: false };
-    const parsed = JSON.parse(raw);
-    return { zoom: typeof parsed.zoom === 'number' ? parsed.zoom : 1, muted: Boolean(parsed.muted) };
-  } catch {
-    return { zoom: 1, muted: false };
-  }
-}
-
-export function writeSettings(settings) {
-  try {
-    globalThis.localStorage?.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  } catch {
-    // nothing to do without storage
-  }
-}
-
-// What a save carries: enough to put the player back on the same street with the same stars,
-// the same cash and the same job, but not the coordinates of every passing taxi.
-export function snapshot(state) {
-  const car = state.vehicle ? {
-    type: state.vehicle.type, x: state.vehicle.x, y: state.vehicle.y, heading: state.vehicle.heading, color: state.vehicle.color,
-  } : null;
+function createSave(state, story) {
   return {
-    version: 1,
-    savedAt: new Date().toISOString(),
-    player: { x: state.player.x, y: state.player.y, cash: state.player.cash, health: state.player.health, armor: state.player.armor },
-    vehicle: car,
-    carryingLedger: Boolean(state.carryingLedger),
-    completed: [...state.completed],
-    mission: state.mission ? { index: state.missionIndex, stage: state.missionStage, verdict: state.missionVerdict } : null,
-    wanted: { heat: state.wanted.heat },
-    clock: state.clock,
-    stolen: state.traffic?.filter((trafficCar) => trafficCar.stolen).map((trafficCar) => ({ type: trafficCar.type, x: trafficCar.x, y: trafficCar.y, color: trafficCar.color })) ?? [],
-    owned: state.owned,
+    // Write both keys; returns true only when both landed.
+    save() {
+      let ok = saveGame(state);
+      try {
+        const storyData = {
+          missionIndex: story ? story.index : 0,
+          done: story ? story.done.slice() : [],
+          savedAt: Date.now(),
+        };
+        localStorage.setItem(STORY_SAVE_KEY, JSON.stringify(storyData));
+      } catch (e) { ok = false; }
+      return ok;
+    },
+    // Read both keys and apply them onto the live state; false = no save.
+    load() {
+      const data = loadGame();
+      if (!data) return false;
+      applySave(state, data);
+      try {
+        const raw = localStorage.getItem(STORY_SAVE_KEY);
+        if (raw && story) {
+          const sd = JSON.parse(raw);
+          if (typeof sd.missionIndex === 'number') story.index = sd.missionIndex;
+          if (Array.isArray(sd.done)) story.done = sd.done.slice();
+          story.active = null;
+          story.dirty = true;
+        }
+      } catch (e) { /* story progress stays fresh */ }
+      return true;
+    },
+    // NEW LIFE: wipe the base snapshot and the story progress together.
+    wipe() {
+      clearSave();
+      try { localStorage.removeItem(STORY_SAVE_KEY); } catch (e) { /* ignore */ }
+    },
+    // True when a base snapshot exists (the story key is optional).
+    hasSave() {
+      try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; }
+    },
   };
 }

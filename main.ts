@@ -1,35 +1,22 @@
-// Tallow Point's entrypoint: copies the static game (game/) and its screenshots/ into the output
-// directory and writes dossier.json with the vendored make.fun library. Node 22, standard library
-// only, no network: the game is plain ES modules on a canvas, loaded by game/index.html.
-// Locally, MAKEFUN_OUTPUT_DIR stands in for /output: MAKEFUN_OUTPUT_DIR=out node main.ts
-import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+// Tallow Point — entrypoint (R4-1, fresh from the R4 spec).
+// Node 22, standard library only. Copies game/ and screenshots/ from beside
+// this file into the output directory and writes dossier.json with the
+// vendored make.fun library, so the judge reads the game exactly as built.
+// Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output:
+//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const repo = fileURLToPath(new URL('.', import.meta.url));
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const repoRoot = fileURLToPath(new URL('.', import.meta.url));
+const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-// Plain directory copies, one level at a time, so an existing output is replaced file by file and
-// no symlink or odd entry in the source is followed out of the tree.
-function copyTree(from: string, to: string): number {
-  mkdirSync(to, { recursive: true });
-  let copied = 0;
-  for (const entry of readdirSync(from, { withFileTypes: true })) {
-    const source = join(from, entry.name);
-    const target = join(to, entry.name);
-    if (entry.isDirectory()) copied += copyTree(source, target);
-    else if (entry.isFile()) {
-      cpSync(source, target);
-      copied += 1;
-    }
-  }
-  return copied;
-}
-
-// The scorer's caps for this competition: at most 4 screenshots, each at most 256 KiB; game/ with
-// at most 993 files and directories and 48 MiB in all. buildDossier refuses a snapshot over them.
-const caps = {
+// The scorer caps the whole /output at 1000 entries and 64 MiB, and the
+// dossier text at 160 KiB; these caps mirror the gate so a local build
+// refuses exactly what the scorer would refuse.
+const CAPS = {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
   game_max_files: 993,
@@ -37,14 +24,22 @@ const caps = {
   game_path_max_bytes: 1000,
 };
 
-const gameDir = join(repo, 'game');
-if (!existsSync(join(gameDir, 'index.html'))) throw new Error(`no game/index.html under ${repo}`);
-const gameFiles = copyTree(gameDir, join(out, 'game'));
+function copyTree(source, target) {
+  if (!existsSync(source)) return;
+  mkdirSync(target, { recursive: true });
+  cpSync(source, target, { recursive: true });
+}
 
-const shotsDir = join(repo, 'screenshots');
-const shots = existsSync(shotsDir) ? copyTree(shotsDir, join(out, 'screenshots')) : 0;
+mkdirSync(outDir, { recursive: true });
+// Start from a clean slate so a stale file from an older build can never
+// leak into the dossier.
+rmSync(join(outDir, 'game'), { recursive: true, force: true });
+rmSync(join(outDir, 'screenshots'), { recursive: true, force: true });
+rmSync(join(outDir, 'dossier.json'), { force: true });
 
-const dossierPath = join(out, 'dossier.json');
-writeFileSync(dossierPath, buildDossier(out, caps));
-const dossierBytes = statSync(dossierPath).size;
-console.log(`game: ${gameFiles} files, screenshots: ${shots}, dossier.json: ${dossierBytes} bytes -> ${out}`);
+copyTree(join(repoRoot, 'game'), join(outDir, 'game'));
+copyTree(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'));
+
+const dossier = buildDossier(outDir, CAPS);
+writeFileSync(join(outDir, 'dossier.json'), dossier);
+console.log('wrote ' + join(outDir, 'dossier.json') + ' (' + dossier.length + ' bytes)');

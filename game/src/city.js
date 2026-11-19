@@ -1,239 +1,161 @@
-// city.js — builds Tallow Point from a seed: a 7 x 7 grid of blocks split into five named
-// districts, a coastal strip on the east, a road graph for traffic and police pathfinding,
-// parking spots, footpaths for pedestrians and lamp posts along every curb. Nothing here draws.
-import { CELL, GRID, ROAD, WORLD } from './config.js';
-import { makeRandom, noise } from './random.js';
+'use strict';
+// Tallow Point — city data, pure and deterministic (R4-1, fresh from spec).
+// buildCity(seed) returns the whole city as plain data: 49 blocks in 5
+// districts, a road graph (intersections + edges), sidewalks, street lamps,
+// parking spots and the Crater Row safehouse. No rendering here, no DOM,
+// no network — the renderer and the gameplay modules read this data only.
+//
+// Coordinates: x grows east (columns), z grows south (rows), the city is
+// centred on (0, 0). One "pitch" is block + road; roads run on the grid
+// lines between blocks and around the rim, so there are grid + 1 = 8 roads
+// each way and 8 x 8 = 64 intersections.
 
-export const DISTRICTS = [
-  { name: 'Kessel Wharf', x0: 5, x1: 6, y0: 4, y1: 6, accent: '#3aa0b8', shops: ['Fish & Net', 'Wharf Pub', 'Dry Dock Deli', 'Saltbox Diner'], blocks: [] },
-  { name: 'Northline', x0: 0, x1: 2, y0: 0, y1: 1, accent: '#b8a34a', shops: ['Line Diner', 'Terminal Cafe', 'Hopper Bar', 'Grease Stop'], blocks: [] },
-  { name: 'Moraine Heights', x0: 3, x1: 6, y0: 0, y1: 1, accent: '#8f6fb8', shops: ['Highway Pharmacy', 'Bell Rentals', 'Quiet Room', 'Overlook Grill'], blocks: [] },
-  { name: 'Crater Row', x0: 0, x1: 2, y0: 2, y1: 3, accent: '#c0603a', shops: ['Sump Pawn', 'Row Barbers', 'Ember Noodle', 'Crater Mart'], blocks: [] },
-  { name: 'Sunmere', x0: 3, x1: 6, y0: 2, y1: 3, accent: '#58b46a', shops: ['Mere Cafe', 'Bay Hotel', 'Greenbank', 'Sand Lounge'], blocks: [] },
-];
+function buildCity(seed) {
+  const rng = RNG(seed);
+  const grid = CFG.city.grid;
+  const block = CFG.city.block;
+  const road = CFG.city.road;
+  const pitch = block + road;
+  const span = grid * block + (grid + 1) * road;
+  const half = span / 2;
 
-const COMPANY_NAMES = ['Kestrel Trust', 'Halcyon Freight', 'Morrow & Vane', 'Pike Legal', 'Brandt Motors', 'Cinder Media', 'Ostrander Bank', 'Fenn & Sons', 'Bluecrow Mining', 'Wexley Dental'];
-const HOUSE_NAMES = ['Carrow', 'Doyle', 'Pinch', 'Osei', 'Varga', 'Mabry', 'Lund', 'Sato', 'Quist', 'Harrow', 'Nkemdi', 'Fisk'];
-
-export const BUILDING_KINDS = [
-  { kind: 'tower', weight: 9, floors: [4, 8], shop: false },
-  { kind: 'office', weight: 7, floors: [3, 5], shop: false },
-  { kind: 'apartment', weight: 6, floors: [3, 4], shop: false },
-  { kind: 'shop', weight: 5, floors: [1, 2], shop: true },
-  { kind: 'warehouse', weight: 4, floors: [1, 2], shop: false },
-  { kind: 'kiosk', weight: 2, floors: [1, 1], shop: true },
-  { kind: 'house', weight: 4, floors: [1, 2], shop: false },
-];
-
-function weightedKind(random) {
-  const total = BUILDING_KINDS.reduce((sum, item) => sum + item.weight, 0);
-  let roll = random.range(0, total);
-  for (const item of BUILDING_KINDS) {
-    roll -= item.weight;
-    if (roll <= 0) return item;
+  // Road centreline coordinate for road index i (0..grid).
+  function roadAt(i) { return -half + road / 2 + i * pitch; }
+  // Centre of block (row, col).
+  function blockCenter(row, col) {
+    return {
+      x: -half + road + col * pitch + block / 2,
+      z: -half + road + row * pitch + block / 2,
+    };
   }
-  return BUILDING_KINDS[0];
-}
 
-export function districtAt(x, y) {
-  const cellX = Math.min(GRID - 1, Math.max(0, Math.floor(x / CELL)));
-  const cellY = Math.min(GRID - 1, Math.max(0, Math.floor(y / CELL)));
-  for (const district of DISTRICTS) {
-    if (cellX >= district.x0 && cellX <= district.x1 && cellY >= district.y0 && cellY <= district.y1) return district;
-  }
-  return DISTRICTS[3];
-}
-
-export const RIVER_X = 6 * 150 + 11;
-export const RIVER_WIDTH = WORLD - RIVER_X;
-export const BRIDGE_ROWS = [2, 4, 6];
-
-// The bridge rows draw the water below the road grid, so the district under them is wharf land.
-export function buildCity(seed = 'tallow-point') {
-  const random = makeRandom(seed);
-  const buildings = [];
-  const parking = [];
+  // ---- blocks: one building cluster per block, shaped by its district ----
   const blocks = [];
-
-  for (let cellY = 0; cellY < GRID; cellY += 1) {
-    for (let cellX = 0; cellX < GRID; cellX += 1) {
-      const left = cellX * CELL + ROAD;
-      const top = cellY * CELL + ROAD;
-      const size = CELL - ROAD;
-      const district = districtAt(left + 1, top + 1);
-      const parkRow = random.chance(0.15);
-      const vertical = cellY % 2 === 1;
-      const center = Math.hypot(left + size / 2 - 525, top + size / 2 - 525);
-      const kind = parkRow ? 'park' : center < 210 && random.chance(0.55) ? 'bay' : vertical ? 'towers' : random.chance(0.35) ? 'low' : 'row';
-      const block = { cellX, cellY, x: left, y: top, size, district: district.name, accent: district.accent, kind };
-      blocks.push(block);
-      district.blocks.push(block);
-
-      // A back row and a front row; the front one faces the street the player drives on.
-      const frontHeight = random.range(26, 44);
-      let x = left + 8;
-      while (x < left + size - 16) {
-        const width = Math.min(random.range(32, 62), left + size - 8 - x);
-        if (width < 20) break;
-        buildings.push(makeBuilding(random, x, top + 6, width - 3, size - frontHeight - 14, district));
-        x += width;
+  for (let row = 0; row < grid; row++) {
+    for (let col = 0; col < grid; col++) {
+      const district = districtAt(row, col);
+      const centre = blockCenter(row, col);
+      const buildings = [];
+      const count = district.style === 'warehouse' ? 2
+        : district.style === 'office' ? 1
+        : district.style === 'house' ? 3
+        : 2;
+      for (let b = 0; b < count; b++) {
+        const w = rng.range(block * 0.28, block * 0.62);
+        const d = rng.range(block * 0.28, block * 0.62);
+        const maxOff = block / 2 - Math.max(w, d) / 2 - 2;
+        buildings.push({
+          x: centre.x + rng.range(-maxOff, maxOff),
+          z: centre.z + rng.range(-maxOff, maxOff),
+          w, d,
+          h: rng.range(district.hMin, district.hMax),
+          color: rng.pick(district.palette),
+          roof: district.roof,
+          // A taller slab on office towers so the skyline reads at a glance.
+          tower: district.style === 'office' && rng.chance(0.5),
+        });
       }
-      x = left + 8;
-      while (x < left + size - 16) {
-        const width = Math.min(random.range(32, 62), left + size - 8 - x);
-        if (width < 20) break;
-        if (!parkRow) buildings.push(makeBuilding(random, x, top + size - frontHeight - 4, width - 3, frontHeight, district));
-        x += width;
-      }
-      if (parkRow) {
-        buildings.push(makeBuilding(random, left + 14, top + size - 30, size - 40, 26, district, true));
-        // A pocket park keeps the block's middle open; the renderer draws its lawn and fountain.
-      }
-      // Parking spots sit on the road strip, clear of the building front row: one along the
-      // vertical road on the block's left edge and one along the horizontal road on its top.
-      parking.push({ x: left - ROAD * 0.42, y: top + size * 0.35, angle: Math.PI / 2, spot: 1 });
-      parking.push({ x: left + size * 0.6, y: top - ROAD * 0.42, angle: 0, spot: 2 });
+      blocks.push({
+        row, col, district: district.name, style: district.style,
+        x: centre.x, z: centre.z, size: block, buildings,
+        tree: rng.chance(CFG.city.treeChance),
+      });
     }
   }
 
-  // Road graph: nodes at every grid intersection.
+  // ---- road graph: 64 intersection nodes, edges along every road ----
   const nodes = [];
-  for (let gy = 0; gy <= GRID; gy += 1) {
-    for (let gx = 0; gx <= GRID; gx += 1) {
-      nodes.push({ id: gy * (GRID + 1) + gx, gx, gy, x: gx * CELL + ROAD / 2, y: gy * CELL + ROAD / 2, next: [] });
+  for (let j = 0; j <= grid; j++) {
+    for (let i = 0; i <= grid; i++) {
+      nodes.push({ id: j * (grid + 1) + i, i, j, x: roadAt(i), z: roadAt(j) });
     }
   }
+  function nodeId(i, j) { return j * (grid + 1) + i; }
   const edges = [];
-  for (const node of nodes) {
-    for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
-      const gx = node.gx + dx;
-      const gy = node.gy + dy;
-      if (gx < 0 || gy < 0 || gx > GRID || gy > GRID) continue;
-      const other = nodes[gy * (GRID + 1) + gx];
-      const edge = { a: node.id, b: other.id, ax: node.x, ay: node.y, bx: other.x, by: other.y, length: CELL, axis: dx !== 0 ? 'x' : 'y' };
-      edges.push(edge);
-      const index = edges.length - 1;
-      node.next.push({ to: other.id, edge: index, axis: edge.axis, dir: dx !== 0 ? Math.sign(dx) * 2 : Math.sign(dy) * 2 + 1 });
+  for (let j = 0; j <= grid; j++) {
+    for (let i = 0; i < grid; i++) {
+      edges.push({ a: nodeId(i, j), b: nodeId(i + 1, j), horizontal: true });
+    }
+  }
+  for (let i = 0; i <= grid; i++) {
+    for (let j = 0; j < grid; j++) {
+      edges.push({ a: nodeId(i, j), b: nodeId(i, j + 1), horizontal: false });
     }
   }
 
+  // ---- sidewalks: one strip on each side of every road ----
+  const sidewalks = [];
+  const sw = CFG.city.sidewalk;
+  for (let i = 0; i <= grid; i++) {
+    const c = roadAt(i);
+    sidewalks.push({ x: c - road / 2 - sw / 2, z: 0, w: sw, d: span, along: 'z' });
+    sidewalks.push({ x: c + road / 2 + sw / 2, z: 0, w: sw, d: span, along: 'z' });
+    sidewalks.push({ x: 0, z: c - road / 2 - sw / 2, w: span, d: sw, along: 'x' });
+    sidewalks.push({ x: 0, z: c + road / 2 + sw / 2, w: span, d: sw, along: 'x' });
+  }
+
+  // ---- street lamps at every 2nd intersection, on the road corner ----
   const lamps = [];
-  for (let gy = 0; gy <= GRID; gy += 1) {
-    for (let gx = 0; gx <= GRID; gx += 1) {
-      lamps.push({ x: gx * CELL + ROAD / 2, y: gy * CELL + ROAD / 2 + 3 });
-    }
-  }
-  for (let cellX = 0; cellX < GRID; cellX += 1) {
-    for (let cellY = 0; cellY < GRID; cellY += 1) {
-      lamps.push({ x: cellX * CELL + CELL - 4, y: cellY * CELL + ROAD + 12 });
-      lamps.push({ x: cellX * CELL + ROAD + 10, y: cellY * CELL + CELL - 4 });
+  for (let j = 0; j <= grid; j += CFG.city.lampEvery) {
+    for (let i = 0; i <= grid; i += CFG.city.lampEvery) {
+      lamps.push({ x: roadAt(i) + road / 2 + 1.5, z: roadAt(j) + road / 2 + 1.5 });
     }
   }
 
-  const coast = { x: WORLD - 1, width: 30 };
-  const bounds = { minX: ROAD / 2, maxX: WORLD - ROAD / 2, minY: ROAD / 2, maxY: WORLD - ROAD / 2 };
-
-  function nearestNode(x, y) {
-    const gx = Math.round((x - ROAD / 2) / CELL);
-    const gy = Math.round((y - ROAD / 2) / CELL);
-    const cx = Math.min(GRID, Math.max(0, gx));
-    const cy = Math.min(GRID, Math.max(0, gy));
-    return nodes[cy * (GRID + 1) + cx];
+  // ---- parking spots: bays along a few road edges, angled to the kerb ----
+  const parking = [];
+  const parkEdges = rng.shuffle(edges).slice(0, CFG.car.parkedCount);
+  for (const edge of parkEdges) {
+    const a = nodes[edge.a];
+    const b = nodes[edge.b];
+    const t = rng.range(0.25, 0.75);
+    const px = a.x + (b.x - a.x) * t;
+    const pz = a.z + (b.z - a.z) * t;
+    const side = rng.chance(0.5) ? 1 : -1;
+    parking.push({
+      x: px + (edge.horizontal ? 0 : side * (road / 2 - 1.6)),
+      z: pz + (edge.horizontal ? side * (road / 2 - 1.6) : 0),
+      angle: edge.horizontal ? 0 : Math.PI / 2,
+      taken: false,
+    });
   }
 
-  // Dijkstra over 64 nodes is cheap enough to run per spawn; police replan every second.
-  function route(fromId, toId) {
-    const count = nodes.length;
-    const distance = new Float64Array(count).fill(Infinity);
-    const previous = new Int32Array(count).fill(-1);
-    const used = new Uint8Array(count);
-    distance[fromId] = 0;
-    while (true) {
-      let best = -1;
-      for (let index = 0; index < count; index += 1) {
-        if (!used[index] && (best === -1 || distance[index] < distance[best])) best = index;
-      }
-      if (best === -1 || distance[best] === Infinity || best === toId) break;
-      used[best] = 1;
-      for (const link of nodes[best].next) {
-        const length = distance[best] + CELL;
-        if (length < distance[link.to]) {
-          distance[link.to] = length;
-          previous[link.to] = best;
-        }
-      }
-    }
-    if (distance[toId] === Infinity) return [];
-    const path = [];
-    let cursor = toId;
-    while (cursor !== -1 && cursor !== fromId) {
-      path.push(cursor);
-      cursor = previous[cursor];
-    }
-    path.reverse();
-    return path;
-  }
+  // ---- safehouse: the player's first home, Crater Row, block (3, 3) ----
+  const safeBlock = blocks.find(
+    (b) => b.row === CFG.player.startBlock.row && b.col === CFG.player.startBlock.col,
+  );
+  const safehouse = {
+    block: safeBlock.row + ',' + safeBlock.col,
+    district: safeBlock.district,
+    x: safeBlock.x, z: safeBlock.z,
+  };
 
-  function pointAt(nodeId, towardId) {
-    const from = nodes[nodeId];
-    const to = nodes[towardId];
-    return { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2, dx: Math.sign(to.x - from.x), dy: Math.sign(to.y - from.y) };
-  }
-
-  return { seed, nodes, edges, buildings, blocks, parking, lamps, coast, bounds, route, nearestNode, pointAt };
-}
-
-function makeBuilding(random, x, y, w, h, district, park) {
-  const kind = park ? { kind: 'greenhouse', floors: [1, 1], shop: false } : weightedKind(random);
-  const floors = random.int(kind.floors[0], kind.floors[1]);
-  const shop = kind.shop;
-  const name = shop ? random.pick(district.shops) : kind.kind === 'house'
-    ? `${random.pick(HOUSE_NAMES)} Residence`
-    : `${random.pick(COMPANY_NAMES)} ${kind.kind === 'tower' ? 'Tower' : kind.kind === 'warehouse' ? 'Depot' : 'Building'}`;
-  const tint = noise(x, y, floors) * 0.12;
   return {
-    x, y, w, h,
-    kind: kind.kind,
-    floors,
-    shop,
-    name,
-    neon: shop ? random.pick(['#ff5ea8', '#39d2ff', '#ffc94a', '#ff8a3d']) : null,
-    body: `hsl(${Math.round(random.range(200, 260) + (kind.kind === 'warehouse' ? 12 : 0))} ${kind.kind === 'house' ? 9 : 11}% ${Math.round(16 + floors * 2.1 + tint * 30)}%)`,
-    roof: `hsl(228 12% ${Math.round(12 + floors * 1.4)}%)`,
+    seed, grid, block, road, pitch, span, half,
+    blocks, nodes, edges, sidewalks, lamps, parking, safehouse,
+    roadAt, blockCenter, nodeId,
   };
 }
 
-// True when a circle at (x, y) of radius r overlaps any building footprint.
-export function hitsBuilding(buildings, x, y, r) {
-  for (const building of buildings) {
-    if (x + r > building.x && x - r < building.x + building.w && y + r > building.y && y - r < building.y + building.h) return building;
+// Nearest intersection node to a world point (for driving / chasing).
+function nearestNode(city, x, z) {
+  let best = city.nodes[0];
+  let bestD = Infinity;
+  for (const node of city.nodes) {
+    const dx = node.x - x;
+    const dz = node.z - z;
+    const d = dx * dx + dz * dz;
+    if (d < bestD) { bestD = d; best = node; }
   }
-  return null;
+  return best;
 }
 
-const TREE_SPOTS = [];
-for (let cellX = 0; cellX < GRID; cellX += 1) {
-  for (let cellY = 0; cellY < GRID; cellY += 1) {
-    TREE_SPOTS.push({ x: cellX * CELL + CELL - 8, y: cellY * CELL + 9 });
-    TREE_SPOTS.push({ x: cellX * CELL + 8, y: cellY * CELL + CELL - 9 });
-  }
-}
-
-// Street furniture the renderer draws on top of the blocks; kept apart from buildings because a
-// tree or a planter must never be mistaken for something an actor collides with.
-export function buildDecorations(seed = 'tallow-point') {
-  const random = makeRandom(`${seed}/decor`);
-  const trees = [];
-  for (const spot of TREE_SPOTS) {
-    if (random.chance(0.55)) trees.push({ x: spot.x + random.range(-2, 2), y: spot.y + random.range(-2, 2), size: random.range(4.5, 7) });
-  }
-  const parkedSigns = [];
-  for (let cellX = 0; cellX < GRID; cellX += 1) {
-    for (let cellY = 0; cellY < GRID; cellY += 1) {
-      parkedSigns.push({ x: cellX * CELL + CELL * 0.5, y: cellY * CELL + CELL - 18, text: `${random.int(2, 9)}`, angle: 0 });
-    }
-  }
-  const hydrants = [];
-  for (const tree of trees) if (random.chance(0.3)) hydrants.push({ x: tree.x + 4, y: tree.y + 4 });
-  return { trees, parkedSigns, hydrants };
+// Which block contains a world point, or null outside the city.
+function blockAt(city, x, z) {
+  const local = x + city.half - city.road;
+  const col = Math.floor(local / city.pitch);
+  const localZ = z + city.half - city.road;
+  const row = Math.floor(localZ / city.pitch);
+  if (row < 0 || row >= city.grid || col < 0 || col >= city.grid) return null;
+  return city.blocks[row * city.grid + col];
 }

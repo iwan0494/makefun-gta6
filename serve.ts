@@ -1,18 +1,22 @@
-// A small static server for game/ (Node 22, standard library only): node serve.ts [--port 8080].
-// It serves files under game/ with the MIME types the game's modules and assets need, answers a
-// directory with its index.html and refuses anything that resolves outside game/.
+// Tallow Point — tiny static server for local testing (R4-1, fresh).
+// Node 22, standard library only. Serves game/ on http://localhost:8080
+// (or --port <n>) so the game can be played and screenshotted locally.
+// It refuses any path outside game/ and sets no-store, so a stale file
+// can never hide a fresh build. Development convenience only — the entry
+// itself is static files, served by anything.
+
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
+const gameRoot = resolve(fileURLToPath(new URL('./game', import.meta.url)));
 const argv = process.argv.slice(2);
-const flag = argv.indexOf('--port');
-const wanted = flag === -1 ? 8080 : Number(argv[flag + 1]);
+const portFlag = argv.indexOf('--port');
+const wanted = portFlag === -1 ? 8080 : Number(argv[portFlag + 1]);
 const port = Number.isInteger(wanted) && wanted > 0 && wanted < 65536 ? wanted : 8080;
 
-const types: Record<string, string> = {
+const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
@@ -20,41 +24,47 @@ const types: Record<string, string> = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
-  '.wasm': 'application/wasm',
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
   '.txt': 'text/plain; charset=utf-8',
 };
 
-createServer((request, response) => {
-  let pathname: string;
+createServer((req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  let path;
   try {
-    pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
+    path = decodeURIComponent(url.pathname);
   } catch {
-    response.writeHead(400).end('bad request');
+    res.writeHead(400).end('bad request');
     return;
   }
-  if (pathname.endsWith('/')) pathname += 'index.html';
-  const file = resolve(join(root, normalize(pathname)));
-  if (file !== root && !file.startsWith(root + sep)) {
-    response.writeHead(403).end('forbidden');
+  if (path.endsWith('/')) path += 'index.html';
+  const file = resolve(join(gameRoot, normalize(path)));
+  if (file !== gameRoot && !file.startsWith(gameRoot + sep)) {
+    res.writeHead(403).end('forbidden');
     return;
   }
-  let size: number;
+  let size;
   try {
-    const stats = statSync(file);
-    if (!stats.isFile()) throw new Error('not a file');
-    size = stats.size;
+    const info = statSync(file);
+    if (!info.isFile()) throw new Error('not a file');
+    size = info.size;
   } catch {
-    response.writeHead(404).end('not found');
+    res.writeHead(404).end('not found');
     return;
   }
-  response.writeHead(200, {
-    'content-type': types[extname(file).toLowerCase()] ?? 'application/octet-stream',
+  res.writeHead(200, {
+    'content-type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream',
     'content-length': size,
     'cache-control': 'no-store',
   });
-  createReadStream(file).pipe(response);
+  createReadStream(file).pipe(res);
 }).listen(port, '127.0.0.1', () => {
-  console.log(`Tallow Point is on http://localhost:${port}`);
+  console.log('game/ is on http://localhost:' + port);
 });
